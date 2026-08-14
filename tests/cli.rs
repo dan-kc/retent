@@ -66,9 +66,8 @@ fn queue_interleaves_types_and_next_reuses_limit() {
     );
 
     cargo_bin_cmd!("retent")
-        .args(["queue", "--root"])
-        .arg(directory.path())
-        .args(["--as-of", "2026-08-14"])
+        .arg("queue")
+        .current_dir(directory.path())
         .assert()
         .success()
         .stdout(predicate::str::contains(" note "))
@@ -99,9 +98,8 @@ fn queue_prints_valid_rows_but_fails_for_invalid_files() {
     );
 
     cargo_bin_cmd!("retent")
-        .args(["queue", "--root"])
-        .arg(directory.path())
-        .args(["--as-of", "2026-08-14"])
+        .arg("queue")
+        .current_dir(directory.path())
         .assert()
         .failure()
         .stdout(predicate::str::contains("valid.md"))
@@ -112,16 +110,16 @@ fn queue_prints_valid_rows_but_fails_for_invalid_files() {
 }
 
 #[test]
-fn queue_filters_conflict() {
+fn list_type_filters_conflict() {
     cargo_bin_cmd!("retent")
-        .args(["queue", "--notes-only", "--cards-only"])
+        .args(["list", "--notes-only", "--cards-only"])
         .assert()
         .failure()
         .stderr(predicate::str::contains("cannot be used with"));
 }
 
 #[test]
-fn queue_plain_is_headerless_tsv() {
+fn list_and_next_plain_are_headerless_tsv() {
     let directory = tempdir().unwrap();
     write_file(
         directory.path(),
@@ -132,7 +130,7 @@ fn queue_plain_is_headerless_tsv() {
     let expected = "1\tnote\t10\tnew\t2026-08-14\t0\t\t6.310\tnote.md\n";
 
     cargo_bin_cmd!("retent")
-        .args(["queue", "--plain", "--root"])
+        .args(["list", "--plain", "--root"])
         .arg(directory.path())
         .args(["--as-of", "2026-08-14"])
         .assert()
@@ -206,7 +204,7 @@ fn cli_rejects_invalid_dates_and_ratings_before_editing() {
     assert_eq!(fs::read_to_string(&card).unwrap(), original);
 
     cargo_bin_cmd!("retent")
-        .args(["queue", "--as-of", "2026-02-30", "--root"])
+        .args(["list", "--as-of", "2026-02-30", "--root"])
         .arg(directory.path())
         .assert()
         .failure()
@@ -214,13 +212,35 @@ fn cli_rejects_invalid_dates_and_ratings_before_editing() {
 }
 
 #[test]
-fn queue_all_includes_upcoming_items() {
+fn queue_rejects_view_options() {
+    for option in ["--all", "--plain", "--wrap", "--notes-only"] {
+        cargo_bin_cmd!("retent")
+            .args(["queue", option])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("unexpected argument"));
+    }
+}
+
+#[test]
+fn list_shows_the_full_scheduled_table_and_supports_composed_filters() {
     let directory = tempdir().unwrap();
+    write_file(directory.path(), "plain.md", "ordinary Markdown\n");
+    write_file(
+        directory.path(),
+        "foo.md",
+        "---\ntype: note\npriority: 50\ntags: [foo, bar]\n---\n",
+    );
+    write_file(
+        directory.path(),
+        "baz.md",
+        "---\ntype: note\npriority: 100\ntags: [foo, baz]\n---\n",
+    );
     write_file(
         directory.path(),
         "upcoming.md",
         concat!(
-            "---\ntype: note\npriority: 100\n---\n",
+            "---\ntype: note\npriority: 100\ntags: [future]\n---\n",
             "<!-- HISTORY:BEGIN -->\n",
             "| Date | End Line | Pass |\n",
             "| --- | --- | --- |\n",
@@ -230,25 +250,111 @@ fn queue_all_includes_upcoming_items() {
     );
 
     cargo_bin_cmd!("retent")
-        .args(["queue", "--plain", "--as-of", "2026-08-14", "--root"])
+        .args(["list", "--as-of", "2026-08-14", "--root"])
         .arg(directory.path())
         .assert()
         .success()
-        .stdout("");
+        .stdout(predicate::str::contains("Type"))
+        .stdout(predicate::str::contains("Prio"))
+        .stdout(predicate::str::contains("Status"))
+        .stdout(predicate::str::contains("Due"))
+        .stdout(predicate::str::contains("Age"))
+        .stdout(predicate::str::contains("Int"))
+        .stdout(predicate::str::contains("Score"))
+        .stdout(predicate::str::contains("Path"))
+        .stdout(predicate::str::contains("foo.md"))
+        .stdout(predicate::str::contains("baz.md"))
+        .stdout(predicate::str::contains("upcoming.md"))
+        .stdout(predicate::str::contains("plain.md").not());
+
+    cargo_bin_cmd!("retent")
+        .args(["list", "--plain", "--as-of", "2026-08-14", "--root"])
+        .arg(directory.path())
+        .args([
+            "--filter",
+            "priority >= 50 and tags.any(foo, bar) & tags.none(baz)",
+        ])
+        .assert()
+        .success()
+        .stdout("1\tnote\t50\tnew\t2026-08-14\t0\t\t1.000\tfoo.md\n");
 
     cargo_bin_cmd!("retent")
         .args([
-            "queue",
-            "--plain",
-            "--all",
+            "list",
+            "--paths",
             "--as-of",
             "2026-08-14",
+            "--filter",
+            "tags.exact(bar, foo)",
             "--root",
         ])
         .arg(directory.path())
         .assert()
         .success()
-        .stdout(predicate::str::contains("upcoming.md"));
+        .stdout("foo.md\n");
+
+    cargo_bin_cmd!("retent")
+        .args([
+            "list",
+            "--plain",
+            "--as-of",
+            "2026-08-14",
+            "--filter",
+            "tags.exact(bar, foo)",
+            "--root",
+        ])
+        .arg(directory.path())
+        .assert()
+        .success()
+        .stdout("1\tnote\t50\tnew\t2026-08-14\t0\t\t1.000\tfoo.md\n");
+}
+
+#[test]
+fn list_and_next_apply_filters_before_ranking() {
+    let directory = tempdir().unwrap();
+    write_file(
+        directory.path(),
+        "foo.md",
+        "---\ntype: note\npriority: 10\ntags: [foo]\n---\n",
+    );
+    write_file(
+        directory.path(),
+        "bar.md",
+        "---\ntype: note\npriority: 90\ntags: [bar]\n---\n",
+    );
+
+    for command in ["list", "next"] {
+        cargo_bin_cmd!("retent")
+            .arg(command)
+            .args(["--plain", "--filter", "tags.any(bar)", "--root"])
+            .arg(directory.path())
+            .args(["--as-of", "2026-08-14"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("bar.md"))
+            .stdout(predicate::str::contains("foo.md").not());
+    }
+}
+
+#[test]
+fn commands_reject_invalid_filter_syntax() {
+    for command in ["list", "next"] {
+        cargo_bin_cmd!("retent")
+            .arg(command)
+            .args(["--filter", "tags.any(foo"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("filter syntax error at byte"));
+    }
+}
+
+#[test]
+fn list_rejects_conflicting_machine_readable_formats() {
+    cargo_bin_cmd!("retent")
+        .args(["list", "--plain", "--paths"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cannot be used with"));
 }
 
 #[test]

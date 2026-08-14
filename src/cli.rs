@@ -9,6 +9,7 @@ use clap::{Args, Parser, Subcommand};
 use crate::clock::{Clock, SystemClock};
 use crate::discover::{markdown_files, relative};
 use crate::document::{Classification, History, parse};
+use crate::filter::Filter;
 use crate::scheduling::card::{CardSchedulerConfig, schedule as schedule_card};
 use crate::scheduling::queue::{QueueOptions, build};
 
@@ -48,9 +49,11 @@ enum Command {
         date: Option<NaiveDate>,
     },
     /// Print the unified learning queue.
-    Queue(QueueArgs),
+    Queue,
     /// Print the first unified queue item.
     Next(NextArgs),
+    /// List all scheduled entries, optionally matching a metadata filter.
+    List(ListArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -80,7 +83,24 @@ struct RootArgs {
 }
 
 #[derive(Debug, Args)]
-struct QueueArgs {
+struct NextArgs {
+    #[arg(long, default_value = ".")]
+    root: PathBuf,
+    #[arg(long, value_parser = parse_date)]
+    as_of: Option<NaiveDate>,
+    /// Match queue entries using metadata filter syntax.
+    #[arg(long)]
+    filter: Option<Filter>,
+    /// Print a headerless, tab-separated row for piping to other programs.
+    #[arg(long, conflicts_with = "wrap")]
+    plain: bool,
+    /// Wrap long table cells instead of truncating them.
+    #[arg(long, conflicts_with = "plain")]
+    wrap: bool,
+}
+
+#[derive(Debug, Args)]
+struct ListArgs {
     #[arg(long, default_value = ".")]
     root: PathBuf,
     #[arg(long, conflicts_with = "cards_only")]
@@ -88,25 +108,21 @@ struct QueueArgs {
     #[arg(long, conflicts_with = "notes_only")]
     cards_only: bool,
     #[arg(long)]
-    all: bool,
-    #[arg(long)]
     limit: Option<usize>,
+    /// Match entries using scalar, set, and boolean expressions.
+    #[arg(long)]
+    filter: Option<Filter>,
     #[arg(long, value_parser = parse_date)]
     as_of: Option<NaiveDate>,
     /// Print headerless, tab-separated rows for piping to other programs.
-    #[arg(long)]
+    #[arg(long, conflicts_with = "paths")]
     plain: bool,
-}
-
-#[derive(Debug, Args)]
-struct NextArgs {
-    #[arg(long, default_value = ".")]
-    root: PathBuf,
-    #[arg(long, value_parser = parse_date)]
-    as_of: Option<NaiveDate>,
-    /// Print a headerless, tab-separated row for piping to other programs.
-    #[arg(long)]
-    plain: bool,
+    /// Print only root-relative file paths, one per line.
+    #[arg(long, conflicts_with = "plain")]
+    paths: bool,
+    /// Wrap long table cells instead of truncating them.
+    #[arg(long, conflicts_with_all = ["plain", "paths"])]
+    wrap: bool,
 }
 
 /// Execute parsed command-line arguments.
@@ -157,18 +173,16 @@ pub fn run_with_clock(cli: Cli, clock: &dyn Clock) -> Result<(), String> {
             );
             Ok(())
         }
-        Command::Queue(arguments) => run_queue(
-            &arguments.root,
-            arguments.as_of.unwrap_or_else(|| clock.today()),
-            QueueOptions {
-                notes_only: arguments.notes_only,
-                cards_only: arguments.cards_only,
-                include_upcoming: arguments.all,
-                limit: arguments.limit,
-            },
-            arguments.plain,
+        Command::Queue => run_list(
+            Path::new("."),
+            clock.today(),
+            QueueOptions::default(),
+            false,
+            false,
+            false,
+            None,
         ),
-        Command::Next(arguments) => run_queue(
+        Command::Next(arguments) => run_list(
             &arguments.root,
             arguments.as_of.unwrap_or_else(|| clock.today()),
             QueueOptions {
@@ -176,6 +190,23 @@ pub fn run_with_clock(cli: Cli, clock: &dyn Clock) -> Result<(), String> {
                 ..QueueOptions::default()
             },
             arguments.plain,
+            false,
+            arguments.wrap,
+            arguments.filter.as_ref(),
+        ),
+        Command::List(arguments) => run_list(
+            &arguments.root,
+            arguments.as_of.unwrap_or_else(|| clock.today()),
+            QueueOptions {
+                notes_only: arguments.notes_only,
+                cards_only: arguments.cards_only,
+                include_upcoming: true,
+                limit: arguments.limit,
+            },
+            arguments.plain,
+            arguments.paths,
+            arguments.wrap,
+            arguments.filter.as_ref(),
         ),
     }
 }
@@ -247,17 +278,22 @@ fn run_audit(command: AuditCommand) -> Result<(), String> {
     Ok(())
 }
 
-fn run_queue(
+fn run_list(
     root: &Path,
     as_of: NaiveDate,
     options: QueueOptions,
     plain: bool,
+    paths: bool,
+    wrap: bool,
+    filter: Option<&Filter>,
 ) -> Result<(), String> {
-    let result = build(root, as_of, options)?;
-    let output = if plain {
+    let result = build(root, as_of, options, filter)?;
+    let output = if paths {
+        crate::output::paths(&result.items)
+    } else if plain {
         crate::output::queue_plain(&result.items)
     } else {
-        crate::output::queue(&result.items)
+        crate::output::queue(&result.items, wrap)
     };
     print!("{output}");
     if result.diagnostics.is_empty() {

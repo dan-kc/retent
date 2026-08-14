@@ -1,14 +1,14 @@
 //! Deterministic global ranking across notes and cards.
 
 use std::cmp::Ordering;
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use chrono::NaiveDate;
 
 use crate::diagnostics::Diagnostic;
-use crate::discover::{markdown_files, relative};
-use crate::document::{Classification, ElementType, History, parse};
+use crate::document::{Classification, ElementType, History};
+use crate::filter::Filter;
+use crate::listing::scan;
 
 use super::ScheduleMetrics;
 use super::card::{CardSchedule, CardSchedulerConfig};
@@ -58,25 +58,17 @@ pub struct QueueResult {
 }
 
 /// Scan, reconstruct, score, and sort a vault queue.
-pub fn build(root: &Path, as_of: NaiveDate, options: QueueOptions) -> Result<QueueResult, String> {
+pub fn build(
+    root: &Path,
+    as_of: NaiveDate,
+    options: QueueOptions,
+    filter: Option<&Filter>,
+) -> Result<QueueResult, String> {
     let mut items = Vec::new();
-    let mut diagnostics = Vec::new();
-    for path in markdown_files(root)? {
-        let relative_path = relative(root, &path);
-        let bytes = fs::read(&path).map_err(|error| format!("{}: {error}", path.display()))?;
-        let source = match String::from_utf8(bytes) {
-            Ok(source) => source,
-            Err(_) => {
-                diagnostics.push(Diagnostic::new(
-                    relative_path,
-                    None,
-                    "utf8-invalid",
-                    "file is not valid UTF-8",
-                ));
-                continue;
-            }
-        };
-        let document = parse(&relative_path, source);
+    let listed = scan(root, filter)?;
+    let mut diagnostics = listed.diagnostics;
+    for entry in listed.entries {
+        let document = entry.document;
         match document.classification() {
             Classification::Invalid => {
                 diagnostics.extend(document.diagnostics);
@@ -100,7 +92,7 @@ pub fn build(root: &Path, as_of: NaiveDate, options: QueueOptions) -> Result<Que
         let priority_weight = priority_weight(priority);
         let score = priority_weight * metrics.pressure;
         items.push(QueueItem {
-            path: relative_path,
+            path: entry.path,
             element_type,
             priority,
             metrics,
@@ -219,6 +211,7 @@ mod tests {
             directory.path(),
             date("2026-08-14"),
             QueueOptions::default(),
+            None,
         )
         .unwrap();
         assert!(hidden.items.is_empty());
@@ -230,6 +223,7 @@ mod tests {
                 include_upcoming: true,
                 ..QueueOptions::default()
             },
+            None,
         )
         .unwrap();
         assert_eq!(visible.items.len(), 1);
@@ -261,7 +255,7 @@ mod tests {
                 ElementType::Card,
             ),
         ] {
-            let result = build(directory.path(), date("2026-08-14"), options).unwrap();
+            let result = build(directory.path(), date("2026-08-14"), options, None).unwrap();
             assert_eq!(result.items.len(), 1);
             assert_eq!(result.items[0].element_type, expected);
         }
@@ -281,6 +275,7 @@ mod tests {
                 limit: Some(2),
                 ..QueueOptions::default()
             },
+            None,
         )
         .unwrap();
         let paths: Vec<_> = result
@@ -301,10 +296,29 @@ mod tests {
             directory.path(),
             date("2026-08-14"),
             QueueOptions::default(),
+            None,
         )
         .unwrap();
         assert!(result.items.is_empty());
         assert_eq!(result.diagnostics.len(), 1);
         assert_eq!(result.diagnostics[0].code, "utf8-invalid");
+    }
+
+    #[test]
+    fn applies_metadata_filter_before_scheduling() {
+        let directory = tempdir().unwrap();
+        write_note(directory.path(), "high.md", 20, "");
+        write_note(directory.path(), "low.md", 80, "");
+
+        let filter = "priority >= 50".parse().unwrap();
+        let result = build(
+            directory.path(),
+            date("2026-08-14"),
+            QueueOptions::default(),
+            Some(&filter),
+        )
+        .unwrap();
+        assert_eq!(result.items.len(), 1);
+        assert_eq!(result.items[0].path, Path::new("low.md"));
     }
 }

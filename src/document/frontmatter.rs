@@ -78,7 +78,8 @@ pub(super) fn parse(path: &Path, source: &str) -> FrontMatterResult {
     };
     let type_line = key_line(&yaml, "type");
     let priority_line = key_line(&yaml, "priority");
-    parse_mapping(path, &mapping, type_line, priority_line)
+    let tags_line = key_line(&yaml, "tags");
+    parse_mapping(path, &mapping, type_line, priority_line, tags_line)
 }
 
 fn parse_mapping(
@@ -86,9 +87,11 @@ fn parse_mapping(
     mapping: &Mapping,
     type_line: Option<usize>,
     priority_line: Option<usize>,
+    tags_line: Option<usize>,
 ) -> FrontMatterResult {
     let type_value = mapping.get(Value::String("type".to_owned()));
     let priority_value = mapping.get(Value::String("priority".to_owned()));
+    let tags_value = mapping.get(Value::String("tags".to_owned()));
     let mut metadata = Metadata {
         type_present: type_value.is_some(),
         priority_present: priority_value.is_some(),
@@ -132,6 +135,24 @@ fn parse_mapping(
                 priority_line,
                 "priority-invalid",
                 format!("expected integer 0..=100, found {}", yaml_kind(value)),
+            )),
+        }
+    }
+
+    if let Some(value) = tags_value {
+        match value {
+            Value::Sequence(values) if values.iter().all(|value| value.as_str().is_some()) => {
+                metadata.tags = values
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect();
+            }
+            _ => diagnostics.push(Diagnostic::new(
+                path,
+                tags_line,
+                "tags-invalid",
+                format!("expected a sequence of strings, found {}", yaml_kind(value)),
             )),
         }
     }
@@ -226,6 +247,18 @@ mod tests {
         for element_type in ["Note", "article", "1", "[note]"] {
             let parsed = result(&format!("---\ntype: {element_type}\npriority: 1\n---\n"));
             assert_eq!(parsed.diagnostics[0].code, "type-invalid");
+        }
+    }
+
+    #[test]
+    fn parses_string_tags_and_rejects_other_shapes() {
+        let parsed = result("---\ntags: [foo, 'two words', foo]\n---\n");
+        assert!(parsed.diagnostics.is_empty());
+        assert_eq!(parsed.metadata.tags, ["foo", "two words", "foo"]);
+
+        for tags in ["foo", "[foo, 1]", "{foo: bar}"] {
+            let parsed = result(&format!("---\ntags: {tags}\n---\n"));
+            assert_eq!(parsed.diagnostics[0].code, "tags-invalid");
         }
     }
 }

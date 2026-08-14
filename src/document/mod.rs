@@ -36,6 +36,7 @@ impl std::fmt::Display for ElementType {
 pub struct Metadata {
     pub element_type: Option<ElementType>,
     pub priority: Option<u8>,
+    pub tags: Vec<String>,
     pub(crate) type_present: bool,
     pub(crate) priority_present: bool,
 }
