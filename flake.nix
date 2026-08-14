@@ -35,9 +35,7 @@
           version = "0.1.0";
           src = pkgs.lib.cleanSourceWith {
             src = ./.;
-            filter =
-              path: _type:
-              builtins.baseNameOf path != "target" && builtins.baseNameOf path != "result";
+            filter = path: _type: builtins.baseNameOf path != "target" && builtins.baseNameOf path != "result";
           };
           cargoLock.lockFile = ./Cargo.lock;
         };
@@ -59,6 +57,7 @@
                 "rust-analyzer"
               ])
               nil
+              nixfmt
               ra-mux.packages.${system}.default
             ]
             ++ scripts;
