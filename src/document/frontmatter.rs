@@ -4,7 +4,7 @@ use std::path::Path;
 
 use serde_yaml_ng::{Mapping, Value};
 
-use super::{ElementType, Metadata};
+use super::{ElementType, Metadata, trim_line_ending};
 use crate::diagnostics::Diagnostic;
 
 pub(super) struct FrontMatterResult {
@@ -41,6 +41,13 @@ pub(super) fn parse(path: &Path, source: &str) -> FrontMatterResult {
                 "opening YAML delimiter has no closing delimiter",
             )],
         };
+    }
+
+    if yaml
+        .lines()
+        .all(|line| line.trim().is_empty() || line.trim_start().starts_with('#'))
+    {
+        return empty();
     }
 
     let value: Value = match serde_yaml_ng::from_str(&yaml) {
@@ -135,8 +142,8 @@ fn parse_mapping(
     }
 }
 
-// serde_yaml does not expose mapping key spans. Scheduler keys are top-level, so
-// find their physical line without attempting to parse YAML a second time.
+// serde_yaml_ng does not expose key spans, so locate top-level scheduler keys in
+// the source.
 fn key_line(yaml: &str, key: &str) -> Option<usize> {
     yaml.lines()
         .position(|line| {
@@ -156,13 +163,6 @@ fn yaml_kind(value: &Value) -> String {
         Value::Mapping(_) => "mapping".to_owned(),
         Value::Tagged(_) => "tagged value".to_owned(),
     }
-}
-
-fn trim_line_ending(line: &str) -> &str {
-    line.strip_suffix('\n')
-        .unwrap_or(line)
-        .strip_suffix('\r')
-        .unwrap_or(line.strip_suffix('\n').unwrap_or(line))
 }
 
 fn empty() -> FrontMatterResult {
@@ -185,6 +185,21 @@ mod tests {
         let parsed = result("type: note\npriority: 1\n");
         assert_eq!(parsed.metadata, Metadata::default());
         assert!(parsed.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn empty_frontmatter_has_missing_values_without_errors() {
+        for source in ["---\n---\n", "---\n# no scheduler fields\n---\n"] {
+            let parsed = result(source);
+            assert_eq!(parsed.metadata, Metadata::default());
+            assert!(parsed.diagnostics.is_empty());
+        }
+    }
+
+    #[test]
+    fn explicit_null_frontmatter_is_not_a_mapping() {
+        let parsed = result("---\nnull\n---\n");
+        assert_eq!(parsed.diagnostics[0].code, "frontmatter-not-mapping");
     }
 
     #[test]

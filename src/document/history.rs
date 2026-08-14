@@ -5,7 +5,7 @@ use std::path::Path;
 use chrono::NaiveDate;
 
 use super::table::{cells, valid_separator};
-use super::{CardEvent, ElementType, History, HistorySpan, NoteEvent};
+use super::{CardEvent, ElementType, History, HistorySpan, NoteEvent, trim_line_ending};
 use crate::diagnostics::Diagnostic;
 
 const BEGIN: &str = "<!-- HISTORY:BEGIN -->";
@@ -447,11 +447,7 @@ fn source_lines(source: &str) -> Vec<SourceLine<'_>> {
     for (index, text) in source.split_inclusive('\n').enumerate() {
         let end = start + text.len();
         lines.push(SourceLine {
-            text: text
-                .strip_suffix('\n')
-                .unwrap_or(text)
-                .strip_suffix('\r')
-                .unwrap_or(text.strip_suffix('\n').unwrap_or(text)),
+            text: trim_line_ending(text),
             start,
             end,
             number: index + 1,
@@ -490,6 +486,11 @@ fn fence_run(line: &str, character: u8) -> usize {
 mod tests {
     use super::*;
 
+    fn diagnostic(source: &str) -> &'static str {
+        let parsed = crate::document::parse("test.md", source);
+        parsed.diagnostics[0].code
+    }
+
     #[test]
     fn parses_pipe_variants_and_same_day_note_rows() {
         let source = "---\ntype: note\npriority: 0\n---\n<!-- HISTORY:BEGIN -->\nDate | End Line | Pass\n:---:|---:|---\n2026-08-14 | 2 | 1\n2026-08-14 | 1 | 2\n<!-- HISTORY:END -->\n";
@@ -516,5 +517,61 @@ mod tests {
         let source = "---\ntype: note\npriority: 1\n---\n<!-- HISTORY:BEGIN -->\n| Date | End Line | Pass |\n| --- | --- | --- |\n| 2026-01-01 | 3 | 1 |\n| 2026-01-02 | 4 | 2 |\n<!-- HISTORY:END -->\n";
         let parsed = crate::document::parse("note.md", source);
         assert_eq!(parsed.diagnostics[0].code, "history-pass-transition");
+    }
+
+    #[test]
+    fn rejects_descending_dates_for_both_history_types() {
+        let note = "---\ntype: note\npriority: 1\n---\n<!-- HISTORY:BEGIN -->\n| Date | End Line | Pass |\n| --- | --- | --- |\n| 2026-01-02 | 3 | 1 |\n| 2026-01-01 | 4 | 1 |\n<!-- HISTORY:END -->\n";
+        let card = "---\ntype: card\npriority: 1\n---\n## Front\nQ\n## Back\nA\n<!-- HISTORY:BEGIN -->\n| Date | Rating |\n| --- | --- |\n| 2026-01-02 | 3 |\n| 2026-01-01 | 4 |\n<!-- HISTORY:END -->\n";
+
+        assert_eq!(diagnostic(note), "history-date-order");
+        assert_eq!(diagnostic(card), "history-date-order");
+    }
+
+    #[test]
+    fn rejects_card_ratings_outside_the_cli_range() {
+        for rating in ["0", "5", "easy"] {
+            let source = format!(
+                concat!(
+                    "---\ntype: card\npriority: 1\n---\n",
+                    "## Front\nQ\n## Back\nA\n",
+                    "<!-- HISTORY:BEGIN -->\n",
+                    "| Date | Rating |\n",
+                    "| --- | --- |\n",
+                    "| 2026-01-01 | {} |\n",
+                    "<!-- HISTORY:END -->\n",
+                ),
+                rating
+            );
+            assert_eq!(diagnostic(&source), "history-rating-invalid");
+        }
+    }
+
+    #[test]
+    fn rejects_unmatched_reversed_and_duplicate_markers() {
+        let cases = [
+            ("<!-- HISTORY:BEGIN -->\n", "history-unmatched-begin"),
+            ("<!-- HISTORY:END -->\n", "history-unmatched-end"),
+            (
+                "<!-- HISTORY:END -->\n<!-- HISTORY:BEGIN -->\n",
+                "history-unmatched-end",
+            ),
+            (
+                "<!-- HISTORY:BEGIN -->\n<!-- HISTORY:BEGIN -->\n<!-- HISTORY:END -->\n",
+                "history-duplicate",
+            ),
+        ];
+
+        for (source, expected) in cases {
+            let result = find_history_span(Path::new("test.md"), source);
+            assert_eq!(result.diagnostics[0].code, expected);
+        }
+    }
+
+    #[test]
+    fn card_sections_must_be_real_unfenced_headings() {
+        let source = "```md\n## Front\n## Back\n```\n## Front\ntext\n## Back\ntext\n";
+        assert_eq!(card_sections(source), (true, true));
+        assert_eq!(card_sections("# Front\n### Back\n"), (false, false));
     }
 }

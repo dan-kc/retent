@@ -7,7 +7,7 @@ use crate::document::CardEvent;
 
 use super::{ScheduleMetrics, new_metrics, reviewed_metrics};
 
-/// Version-one FSRS configuration, kept typed for later configurability.
+/// FSRS scheduler settings.
 #[derive(Debug, Clone, Copy)]
 pub struct CardSchedulerConfig {
     pub desired_retention: f32,
@@ -132,10 +132,13 @@ mod tests {
     }
 
     #[test]
-    fn raw_zero_and_one_select_the_same_transition() {
+    fn raw_ratings_select_the_expected_transition() {
         let states = FSRS::default().next_states(None, 0.85, 0).unwrap();
-        let zero = select_state(states.clone(), 0);
-        let one = select_state(states, 1);
-        assert_eq!(zero, one);
+        assert_eq!(select_state(states.clone(), 0), states.again.clone());
+        assert_eq!(select_state(states.clone(), 1), states.again.clone());
+        assert_eq!(select_state(states.clone(), 2), states.hard.clone());
+        assert_eq!(select_state(states.clone(), 3), states.good.clone());
+        assert_eq!(select_state(states.clone(), 4), states.easy.clone());
+        assert_eq!(select_state(states.clone(), u8::MAX), states.again);
     }
 }

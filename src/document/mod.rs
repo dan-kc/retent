@@ -164,3 +164,8 @@ pub fn read(path: &Path) -> Result<ParsedDocument, String> {
         .map_err(|_| format!("{}: file is not valid UTF-8", path.display()))?;
     Ok(parse(path, source))
 }
+
+fn trim_line_ending(line: &str) -> &str {
+    let line = line.strip_suffix('\n').unwrap_or(line);
+    line.strip_suffix('\r').unwrap_or(line)
+}

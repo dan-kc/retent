@@ -176,7 +176,7 @@ fn validate_for_edit(document: &ParsedDocument, expected: ElementType) -> Result
             ));
         }
     }
-    // Missing priority and card sections are deliberately allowed for editing.
+    // Edits only require a valid type and history.
     Ok(())
 }
 
@@ -339,5 +339,60 @@ mod tests {
         for forbidden in ["stability:", "difficulty:", "due:", "interval:"] {
             assert!(!updated.contains(forbidden));
         }
+    }
+
+    #[test]
+    fn earlier_card_date_does_not_modify_file() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("card.md");
+        let original = concat!(
+            "---\ntype: card\n---\n",
+            "## Front\nQ\n## Back\nA\n",
+            "<!-- HISTORY:BEGIN -->\n",
+            "| Date | Rating |\n",
+            "| --- | --- |\n",
+            "| 2026-08-14 | 3 |\n",
+            "<!-- HISTORY:END -->\n",
+        );
+        fs::write(&path, original).unwrap();
+
+        let error = append_card_event(&path, 4, date("2026-08-13")).unwrap_err();
+        assert!(error.contains("earlier than latest history date"));
+        assert_eq!(fs::read_to_string(path).unwrap(), original);
+    }
+
+    #[test]
+    fn position_inside_history_does_not_modify_file() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("note.md");
+        let original = concat!(
+            "---\ntype: note\n---\n",
+            "<!-- HISTORY:BEGIN -->\n",
+            "| Date | End Line | Pass |\n",
+            "| --- | --- | --- |\n",
+            "<!-- HISTORY:END -->\n",
+        );
+        fs::write(&path, original).unwrap();
+
+        let error = append_note_event(&path, 5, date("2026-08-14")).unwrap_err();
+        assert!(error.contains("inside the history block"));
+        assert_eq!(fs::read_to_string(path).unwrap(), original);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_to_edit_symbolic_links() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempdir().unwrap();
+        let target = directory.path().join("target.md");
+        let link = directory.path().join("link.md");
+        let original = "---\ntype: note\n---\nbody\n";
+        fs::write(&target, original).unwrap();
+        symlink(&target, &link).unwrap();
+
+        let error = append_note_event(&link, 4, date("2026-08-14")).unwrap_err();
+        assert!(error.contains("symbolic links cannot be edited"));
+        assert_eq!(fs::read_to_string(target).unwrap(), original);
     }
 }

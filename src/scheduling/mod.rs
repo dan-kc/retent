@@ -73,3 +73,37 @@ pub(crate) fn new_metrics(as_of: NaiveDate) -> ScheduleMetrics {
         pressure: 1.0,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn date(value: &str) -> NaiveDate {
+        NaiveDate::parse_from_str(value, "%Y-%m-%d").unwrap()
+    }
+
+    #[test]
+    fn reviewed_status_tracks_the_due_date() {
+        let last = date("2026-08-10");
+        let cases = [
+            ("2026-08-12", Status::Upcoming, 2),
+            ("2026-08-13", Status::Due, 3),
+            ("2026-08-14", Status::Overdue, 4),
+        ];
+
+        for (as_of, expected_status, expected_age) in cases {
+            let metrics = reviewed_metrics(last, 3, date(as_of));
+            assert_eq!(metrics.status, expected_status);
+            assert_eq!(metrics.age_days, expected_age);
+            assert_eq!(metrics.due_date, date("2026-08-13"));
+        }
+    }
+
+    #[test]
+    fn future_reviews_do_not_produce_negative_age() {
+        let metrics = reviewed_metrics(date("2026-08-20"), 3, date("2026-08-14"));
+        assert_eq!(metrics.status, Status::Upcoming);
+        assert_eq!(metrics.age_days, 0);
+        assert_eq!(metrics.pressure, 0.0);
+    }
+}

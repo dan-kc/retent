@@ -6,7 +6,7 @@ use crate::document::NoteEvent;
 
 use super::{ScheduleMetrics, new_metrics, reviewed_metrics};
 
-/// Typed constants for the version-one topic model.
+/// Note scheduler settings.
 #[derive(Debug, Clone, Copy)]
 pub struct NoteSchedulerConfig {
     pub maximum_interval_days: u32,
@@ -172,6 +172,19 @@ mod tests {
         let left = schedule(&[first], 10, date, config);
         let right = schedule(&[second], 10, date, config);
         assert_eq!(left.metrics, right.metrics);
+    }
+
+    #[test]
+    fn new_note_is_due_immediately_without_resume_state() {
+        let as_of = NaiveDate::from_ymd_opt(2026, 8, 14).unwrap();
+        let result = schedule(&[], 50, as_of, NoteSchedulerConfig::default());
+
+        assert_eq!(result.metrics.status, super::super::Status::New);
+        assert_eq!(result.metrics.due_date, as_of);
+        assert_eq!(result.pass, None);
+        assert_eq!(result.resume_line, None);
+        assert_eq!(result.reads_in_pass, 0);
+        assert_eq!(result.recent_exposure, 0.0);
     }
 
     #[test]
