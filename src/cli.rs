@@ -27,6 +27,11 @@ enum Command {
         #[command(subcommand)]
         command: AuditCommand,
     },
+    /// Import cards from another application.
+    Import {
+        #[command(subcommand)]
+        command: ImportCommand,
+    },
     /// Record a note cursor position.
     Position {
         file: PathBuf,
@@ -46,6 +51,18 @@ enum Command {
     Queue(QueueArgs),
     /// Print the first unified queue item.
     Next(NextArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum ImportCommand {
+    /// Create or resume a Markdown vault from an Anki collection package.
+    Anki {
+        /// An Anki .colpkg export containing scheduling information.
+        file: PathBuf,
+        /// Destination vault (defaults to the archive name without .colpkg).
+        #[arg(long, short)]
+        output: Option<PathBuf>,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -101,6 +118,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
 pub fn run_with_clock(cli: Cli, clock: &dyn Clock) -> Result<(), String> {
     match cli.command {
         Command::Audit { command } => run_audit(command),
+        Command::Import { command } => run_import(command),
         Command::Position {
             file,
             end_line,
@@ -159,6 +177,37 @@ pub fn run_with_clock(cli: Cli, clock: &dyn Clock) -> Result<(), String> {
             },
             arguments.plain,
         ),
+    }
+}
+
+fn run_import(command: ImportCommand) -> Result<(), String> {
+    let ImportCommand::Anki { file, output } = command;
+    let output = match output {
+        Some(output) => output,
+        None => crate::import::anki::default_output_path(&file)?,
+    };
+    let report = crate::import::anki::import(&file, &output)?;
+    for event in &report.events {
+        println!("{event}");
+    }
+    println!(
+        "imported {} cards and {} media files into {}; skipped {} cards and {} media files",
+        report.imported_cards,
+        report.imported_media,
+        output.display(),
+        report.skipped_cards,
+        report.skipped_media,
+    );
+    if report.errors.is_empty() {
+        Ok(())
+    } else {
+        for error in &report.errors {
+            eprintln!("error: {error}");
+        }
+        Err(format!(
+            "import incomplete: {} error(s); fix the errors and rerun the same command to resume",
+            report.errors.len()
+        ))
     }
 }
 

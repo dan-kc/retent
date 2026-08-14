@@ -1,9 +1,12 @@
 use std::fs;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use assert_cmd::cargo::cargo_bin_cmd;
 use predicates::prelude::*;
+use prost::Message;
 use tempfile::tempdir;
+use zip::write::SimpleFileOptions;
 
 fn write_file(root: &Path, name: &str, contents: impl AsRef<[u8]>) -> PathBuf {
     let path = root.join(name);
@@ -246,4 +249,340 @@ fn queue_all_includes_upcoming_items() {
         .assert()
         .success()
         .stdout(predicate::str::contains("upcoming.md"));
+}
+
+#[test]
+fn anki_import_resumes_after_missing_media_and_reports_skips() {
+    let directory = tempdir().unwrap();
+    let archive = directory.path().join("biology.colpkg");
+    let vault = directory.path().join("biology");
+    write_colpkg_fixture(&archive, false);
+
+    cargo_bin_cmd!("retent")
+        .args(["import", "anki"])
+        .arg(&archive)
+        .args(["--output"])
+        .arg(&vault)
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("created card "))
+        .stdout(predicate::str::contains(
+            "imported 1 cards and 0 media files",
+        ))
+        .stderr(predicate::str::contains(
+            "media \"picture one.PNG\" (0): cannot read archive entry",
+        ))
+        .stderr(predicate::str::contains(
+            "fix the errors and rerun the same command to resume",
+        ));
+
+    let cards = markdown_children(&vault);
+    assert_eq!(cards.len(), 1);
+    let card = fs::read_to_string(&cards[0]).unwrap();
+    assert!(card.contains("type: card"));
+    assert!(card.contains("tags: [\"Study\",\"Biology\",\"Cells\"]"));
+    assert!(card.contains("What is **ATP**?"));
+    assert!(card.contains("## Back\n\nAdenosine triphosphate"));
+    assert!(card.contains("| 2026-08-12 |      2 |"));
+    assert!(card.contains("| 2026-08-13 |      4 |"));
+    assert!(!card.contains("<div>"));
+    assert!(!card.contains("<b>"));
+    let image_reference = card
+        .split("![](./images/")
+        .nth(1)
+        .and_then(|value| value.split(')').next())
+        .unwrap();
+    let (image_stem, image_extension) = image_reference.rsplit_once('.').unwrap();
+    assert_eq!(image_stem.len(), 32);
+    assert!(image_stem.bytes().all(|byte| byte.is_ascii_alphanumeric()));
+    assert_eq!(image_extension, "png");
+    assert!(!vault.join("images").join(image_reference).exists());
+
+    write_colpkg_fixture(&archive, true);
+    cargo_bin_cmd!("retent")
+        .args(["import", "anki"])
+        .arg(&archive)
+        .args(["--output"])
+        .arg(&vault)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("copied media \"picture one.PNG\""))
+        .stdout(predicate::str::contains("skipped card "))
+        .stdout(predicate::str::contains(
+            "imported 0 cards and 1 media files",
+        ));
+    assert_eq!(
+        fs::read(vault.join("images").join(image_reference)).unwrap(),
+        b"not really a png"
+    );
+
+    cargo_bin_cmd!("retent")
+        .args(["import", "anki"])
+        .arg(&archive)
+        .args(["--output"])
+        .arg(&vault)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("skipped media images/"))
+        .stdout(predicate::str::contains("skipped card "))
+        .stdout(predicate::str::contains(
+            "skipped 1 cards and 1 media files",
+        ));
+    assert_eq!(markdown_children(&vault), cards);
+}
+
+#[test]
+fn anki_import_defaults_to_a_sibling_vault() {
+    let directory = tempdir().unwrap();
+    let archive = directory.path().join("my-export.colpkg");
+    write_colpkg_fixture(&archive, true);
+
+    cargo_bin_cmd!("retent")
+        .args(["import", "anki"])
+        .arg(&archive)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            directory.path().join("my-export").display().to_string(),
+        ));
+    assert_eq!(
+        markdown_children(&directory.path().join("my-export")).len(),
+        1
+    );
+}
+
+#[test]
+fn anki_import_supports_current_zstd_protobuf_packages() {
+    let directory = tempdir().unwrap();
+    let archive = directory.path().join("modern.colpkg");
+    let vault = directory.path().join("modern-vault");
+    write_modern_colpkg_fixture(&archive);
+
+    cargo_bin_cmd!("retent")
+        .args(["import", "anki"])
+        .arg(&archive)
+        .args(["--output"])
+        .arg(&vault)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "imported 1 cards and 1 media files",
+        ));
+
+    let cards = markdown_children(&vault);
+    assert_eq!(cards.len(), 1);
+    let card = fs::read_to_string(&cards[0]).unwrap();
+    assert!(card.contains("tags: [\"Modern\",\"Nested\"]"));
+    assert!(card.contains("Modern **front**"));
+    assert!(card.contains("Modern back"));
+    let image_reference = card
+        .split("![](./images/")
+        .nth(1)
+        .and_then(|value| value.split(')').next())
+        .unwrap();
+    assert_eq!(
+        fs::read(vault.join("images").join(image_reference)).unwrap(),
+        b"modern media"
+    );
+}
+
+fn markdown_children(root: &Path) -> Vec<PathBuf> {
+    let mut paths: Vec<_> = fs::read_dir(root)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "md"))
+        .collect();
+    paths.sort();
+    paths
+}
+
+fn write_colpkg_fixture(path: &Path, include_media: bool) {
+    let database = path.with_extension("anki21");
+    let connection = rusqlite::Connection::open(&database).unwrap();
+    connection
+        .execute_batch(
+            "
+            CREATE TABLE col (models TEXT NOT NULL, decks TEXT NOT NULL, conf TEXT NOT NULL);
+            CREATE TABLE notes (id INTEGER PRIMARY KEY, mid INTEGER NOT NULL, flds TEXT NOT NULL);
+            CREATE TABLE cards (
+                id INTEGER PRIMARY KEY,
+                nid INTEGER NOT NULL,
+                did INTEGER NOT NULL,
+                ord INTEGER NOT NULL,
+                odid INTEGER NOT NULL
+            );
+            CREATE TABLE revlog (id INTEGER PRIMARY KEY, cid INTEGER NOT NULL, ease INTEGER NOT NULL);
+            ",
+        )
+        .unwrap();
+    let models = serde_json::json!({
+        "20": {
+            "id": 20,
+            "flds": [{"name": "Front"}, {"name": "Back"}],
+            "tmpls": [{
+                "qfmt": "{{Front}}",
+                "afmt": "{{FrontSide}}<hr id=answer>{{Back}}"
+            }]
+        }
+    })
+    .to_string();
+    let decks = serde_json::json!({
+        "10": {"id": 10, "name": "Study::Biology::Cells"}
+    })
+    .to_string();
+    connection
+        .execute(
+            "INSERT INTO col (models, decks, conf) VALUES (?1, ?2, ?3)",
+            rusqlite::params![models, decks, r#"{"creationOffset":-60}"#],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "INSERT INTO notes (id, mid, flds) VALUES (?1, ?2, ?3)",
+            rusqlite::params![30_i64, 20_i64, "<div>What is <b>ATP</b>?<br><img src=\"picture one.PNG\"></div>\u{1f}<div>Adenosine triphosphate</div>"],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "INSERT INTO cards (id, nid, did, ord, odid) VALUES (40, 30, 10, 0, 0)",
+            [],
+        )
+        .unwrap();
+    for (timestamp, ease) in [
+        ("2026-08-11T23:30:00Z", 2_i64),
+        ("2026-08-13T12:00:00Z", 4_i64),
+    ] {
+        let timestamp = chrono::DateTime::parse_from_rfc3339(timestamp)
+            .unwrap()
+            .timestamp_millis();
+        connection
+            .execute(
+                "INSERT INTO revlog (id, cid, ease) VALUES (?1, 40, ?2)",
+                rusqlite::params![timestamp, ease],
+            )
+            .unwrap();
+    }
+    drop(connection);
+
+    let file = fs::File::create(path).unwrap();
+    let mut archive = zip::ZipWriter::new(file);
+    let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    archive.start_file("collection.anki21", options).unwrap();
+    let mut database_file = fs::File::open(&database).unwrap();
+    let mut bytes = Vec::new();
+    database_file.read_to_end(&mut bytes).unwrap();
+    archive.write_all(&bytes).unwrap();
+    archive.start_file("media", options).unwrap();
+    archive
+        .write_all(
+            serde_json::json!({"0": "picture one.PNG"})
+                .to_string()
+                .as_bytes(),
+        )
+        .unwrap();
+    if include_media {
+        archive.start_file("0", options).unwrap();
+        archive.write_all(b"not really a png").unwrap();
+    }
+    archive.finish().unwrap();
+    fs::remove_file(database).unwrap();
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct FixtureTemplateConfig {
+    #[prost(string, tag = "1")]
+    question: String,
+    #[prost(string, tag = "2")]
+    answer: String,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct FixtureMediaEntries {
+    #[prost(message, repeated, tag = "1")]
+    entries: Vec<FixtureMediaEntry>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct FixtureMediaEntry {
+    #[prost(string, tag = "1")]
+    name: String,
+    #[prost(uint32, tag = "2")]
+    size: u32,
+    #[prost(bytes = "vec", tag = "3")]
+    sha1: Vec<u8>,
+}
+
+fn write_modern_colpkg_fixture(path: &Path) {
+    let database = path.with_extension("anki21b.sqlite");
+    let connection = rusqlite::Connection::open(&database).unwrap();
+    connection
+        .execute_batch(
+            "
+            CREATE TABLE col (models TEXT NOT NULL, decks TEXT NOT NULL, conf TEXT NOT NULL);
+            CREATE TABLE config (key TEXT PRIMARY KEY, val BLOB NOT NULL);
+            CREATE TABLE decks (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+            CREATE TABLE fields (ntid INTEGER NOT NULL, ord INTEGER NOT NULL, name TEXT NOT NULL);
+            CREATE TABLE templates (ntid INTEGER NOT NULL, ord INTEGER NOT NULL, config BLOB NOT NULL);
+            CREATE TABLE notes (id INTEGER PRIMARY KEY, mid INTEGER NOT NULL, flds TEXT NOT NULL);
+            CREATE TABLE cards (
+                id INTEGER PRIMARY KEY,
+                nid INTEGER NOT NULL,
+                did INTEGER NOT NULL,
+                ord INTEGER NOT NULL,
+                odid INTEGER NOT NULL
+            );
+            CREATE TABLE revlog (id INTEGER PRIMARY KEY, cid INTEGER NOT NULL, ease INTEGER NOT NULL);
+            INSERT INTO col (models, decks, conf) VALUES ('{}', '{}', '{}');
+            INSERT INTO config (key, val) VALUES ('creationOffset', '-60');
+            INSERT INTO decks (id, name) VALUES (10, 'Modern::Nested');
+            INSERT INTO fields (ntid, ord, name) VALUES (20, 0, 'Front'), (20, 1, 'Back');
+            INSERT INTO notes (id, mid, flds) VALUES (
+                30, 20,
+                '<div>Modern <b>front</b><img src=modern.jpg></div>\u{001f}<div>Modern back</div>'
+            );
+            INSERT INTO cards (id, nid, did, ord, odid) VALUES (40, 30, 10, 0, 0);
+            INSERT INTO revlog (id, cid, ease) VALUES (1786647600000, 40, 3);
+            ",
+        )
+        .unwrap();
+    let template = FixtureTemplateConfig {
+        question: "{{Front}}".to_owned(),
+        answer: "{{FrontSide}}<hr id=answer>{{Back}}".to_owned(),
+    }
+    .encode_to_vec();
+    connection
+        .execute(
+            "INSERT INTO templates (ntid, ord, config) VALUES (20, 0, ?1)",
+            [&template],
+        )
+        .unwrap();
+    drop(connection);
+
+    let database_bytes = fs::read(&database).unwrap();
+    let manifest = FixtureMediaEntries {
+        entries: vec![FixtureMediaEntry {
+            name: "modern.jpg".to_owned(),
+            size: 12,
+            sha1: vec![0; 20],
+        }],
+    }
+    .encode_to_vec();
+    let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    let mut archive = zip::ZipWriter::new(fs::File::create(path).unwrap());
+    archive.start_file("meta", options).unwrap();
+    archive.write_all(&[8, 3]).unwrap();
+    archive.start_file("collection.anki21b", options).unwrap();
+    archive
+        .write_all(&zstd::stream::encode_all(database_bytes.as_slice(), 0).unwrap())
+        .unwrap();
+    archive.start_file("media", options).unwrap();
+    archive
+        .write_all(&zstd::stream::encode_all(manifest.as_slice(), 0).unwrap())
+        .unwrap();
+    archive.start_file("0", options).unwrap();
+    archive
+        .write_all(&zstd::stream::encode_all(&b"modern media"[..], 0).unwrap())
+        .unwrap();
+    archive.finish().unwrap();
+    fs::remove_file(database).unwrap();
 }

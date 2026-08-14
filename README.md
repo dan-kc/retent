@@ -7,9 +7,23 @@ retent audit missing
 retent audit invalid
 retent position notes/article.md 241 --date 2026-08-16
 retent rate cards/question.md 3 --date 2026-08-16
+retent import anki collection.colpkg [--output my-vault]
 retent queue [--all] [--notes-only|--cards-only] [--limit N] [--plain]
 retent next [--plain]
 ```
+
+`import anki` creates a flat vault of `type: card` Markdown files from an Anki
+collection package. If `--output` is omitted, the vault is created beside the
+archive using its filename without `.colpkg`. Anki HTML is converted to plain
+Markdown, review-log ratings become Retent history, and every component of a
+nested deck name becomes a card tag. Package media is copied into `images/` and
+references are rewritten to stable UUID-like filenames.
+
+Imports are resumable: card and media names are deterministically derived from
+their Anki identities, files are created atomically without overwriting existing
+ones, and every skipped file is reported. Item-level copy errors are shown while
+the remaining items continue; fix the error and run the same command again to
+resume.
 
 Ratings are `1=Again`, `2=Hard`, `3=Good`, `4=Easy`. Cards use default FSRS parameters at 85% desired retention. Notes use a topic cadence derived from priority, review dates, pass, and presentations in the current pass: `ceil(clamp(2^(3p) × (1.10+0.15p)^(n-1) × 4^(pass-1) × (1+0.5 ln(1+exposure)), 1, 3650))`, where prior exposure has a 30-day half-life. `End Line` is resume-only state and never affects scheduling.
 
