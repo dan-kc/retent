@@ -435,6 +435,7 @@ mod tests {
         assert!(matches("priority = 50", &metadata));
         assert!(matches("priority != 49", &metadata));
         assert!(matches("priority < 51", &metadata));
+        assert!(matches("priority <= 50", &metadata));
         assert!(!matches("priority > 50", &metadata));
         assert!(!matches("priority = 0", &Metadata::default()));
     }
@@ -446,6 +447,9 @@ mod tests {
         assert!(matches("tags.any(nope, foo)", &metadata));
         assert!(matches("tags.none(nope, other)", &metadata));
         assert!(matches("tags.exact(bar, foo)", &metadata));
+        assert!(!matches("tags.all(foo, nope)", &metadata));
+        assert!(!matches("tags.any(nope, other)", &metadata));
+        assert!(!matches("tags.none(foo, other)", &metadata));
         assert!(!matches("tags.exact(foo)", &metadata));
     }
 
@@ -457,6 +461,7 @@ mod tests {
             &metadata
         ));
         assert!(matches("not tags.any(baz) or priority = 0", &metadata));
+        assert!(matches("tags.any(baz) | priority = 50", &metadata));
         assert!(!matches(
             "(tags.any(foo) or tags.any(bar)) and !priority >= 50",
             &metadata
@@ -478,8 +483,12 @@ mod tests {
             "",
             "score = 1",
             "tags.some(foo)",
+            "labels.any(foo)",
             "tags.any(foo",
+            "tags.any(foo,)",
+            "priority",
             "priority >= nope",
+            "priority = 1 and",
             "priority = 1 trailing",
         ] {
             let error = source.parse::<Filter>().unwrap_err().to_string();

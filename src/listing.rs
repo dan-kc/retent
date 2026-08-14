@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use crate::diagnostics::Diagnostic;
 use crate::discover::{markdown_files, relative};
-use crate::document::{ParsedDocument, parse};
+use crate::document::{Classification, ParsedDocument, parse};
 use crate::filter::Filter;
 
 /// One parsed Markdown entry and its root-relative path.
@@ -15,14 +15,14 @@ pub struct ListEntry {
     pub document: ParsedDocument,
 }
 
-/// Matching entries plus files that could not be parsed as UTF-8.
+/// Matching entries, invalid documents, and invalid UTF-8 diagnostics.
 #[derive(Debug)]
 pub struct ListResult {
     pub entries: Vec<ListEntry>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
-/// List root entries in deterministic path order, optionally filtering metadata.
+/// List root entries in path order. Invalid documents bypass the filter.
 pub fn scan(root: &Path, filter: Option<&Filter>) -> Result<ListResult, String> {
     let mut entries = Vec::new();
     let mut diagnostics = Vec::new();
@@ -42,7 +42,9 @@ pub fn scan(root: &Path, filter: Option<&Filter>) -> Result<ListResult, String> 
             }
         };
         let document = parse(&relative_path, source);
-        if filter.is_none_or(|filter| filter.matches(&document.metadata)) {
+        if document.classification() == Classification::Invalid
+            || filter.is_none_or(|filter| filter.matches(&document.metadata))
+        {
             entries.push(ListEntry {
                 path: relative_path,
                 document,

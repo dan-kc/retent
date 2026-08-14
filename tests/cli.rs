@@ -213,9 +213,29 @@ fn cli_rejects_invalid_dates_and_ratings_before_editing() {
 
 #[test]
 fn queue_rejects_view_options() {
-    for option in ["--all", "--plain", "--wrap", "--notes-only"] {
+    for option in [
+        "--all",
+        "--plain",
+        "--paths",
+        "--wrap",
+        "--notes-only",
+        "--cards-only",
+    ] {
         cargo_bin_cmd!("retent")
             .args(["queue", option])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("unexpected argument"));
+    }
+
+    for (option, value) in [
+        ("--root", "."),
+        ("--as-of", "2026-08-14"),
+        ("--filter", "priority = 50"),
+        ("--limit", "1"),
+    ] {
+        cargo_bin_cmd!("retent")
+            .args(["queue", option, value])
             .assert()
             .failure()
             .stderr(predicate::str::contains("unexpected argument"));
@@ -349,12 +369,39 @@ fn commands_reject_invalid_filter_syntax() {
 }
 
 #[test]
+fn filters_do_not_hide_invalid_files() {
+    let directory = tempdir().unwrap();
+    write_file(
+        directory.path(),
+        "invalid.md",
+        "---\ntype: note\npriority: 101\ntags: [other]\n---\n",
+    );
+
+    for command in ["list", "next"] {
+        cargo_bin_cmd!("retent")
+            .arg(command)
+            .args(["--filter", "tags.any(wanted)", "--root"])
+            .arg(directory.path())
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("invalid.md:3 [priority-invalid]"));
+    }
+}
+
+#[test]
 fn list_rejects_conflicting_machine_readable_formats() {
-    cargo_bin_cmd!("retent")
-        .args(["list", "--plain", "--paths"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("cannot be used with"));
+    for arguments in [
+        ["list", "--plain", "--paths"],
+        ["list", "--plain", "--wrap"],
+        ["list", "--paths", "--wrap"],
+        ["next", "--plain", "--wrap"],
+    ] {
+        cargo_bin_cmd!("retent")
+            .args(arguments)
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("cannot be used with"));
+    }
 }
 
 #[test]

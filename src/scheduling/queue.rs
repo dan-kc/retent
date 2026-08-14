@@ -321,4 +321,27 @@ mod tests {
         assert_eq!(result.items.len(), 1);
         assert_eq!(result.items[0].path, Path::new("low.md"));
     }
+
+    #[test]
+    fn metadata_filters_do_not_hide_invalid_documents() {
+        let directory = tempdir().unwrap();
+        fs::write(
+            directory.path().join("invalid.md"),
+            "---\ntype: note\npriority: 101\ntags: [other]\n---\n",
+        )
+        .unwrap();
+
+        let filter = "tags.any(wanted)".parse().unwrap();
+        let result = build(
+            directory.path(),
+            date("2026-08-14"),
+            QueueOptions::default(),
+            Some(&filter),
+        )
+        .unwrap();
+
+        assert!(result.items.is_empty());
+        assert_eq!(result.diagnostics.len(), 1);
+        assert_eq!(result.diagnostics[0].code, "priority-invalid");
+    }
 }

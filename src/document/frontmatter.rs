@@ -252,13 +252,18 @@ mod tests {
 
     #[test]
     fn parses_string_tags_and_rejects_other_shapes() {
-        let parsed = result("---\ntags: [foo, 'two words', foo]\n---\n");
+        let parsed = result("---\ntags:\n  - foo\n  - two words\n  - foo\n---\n");
         assert!(parsed.diagnostics.is_empty());
         assert_eq!(parsed.metadata.tags, ["foo", "two words", "foo"]);
 
-        for tags in ["foo", "[foo, 1]", "{foo: bar}"] {
+        let parsed = result("---\ntags: []\n---\n");
+        assert!(parsed.diagnostics.is_empty());
+        assert!(parsed.metadata.tags.is_empty());
+
+        for tags in ["foo", "[foo, 1]", "{foo: bar}", "null"] {
             let parsed = result(&format!("---\ntags: {tags}\n---\n"));
             assert_eq!(parsed.diagnostics[0].code, "tags-invalid");
+            assert_eq!(parsed.diagnostics[0].line, Some(2));
         }
     }
 }
