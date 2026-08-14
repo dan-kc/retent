@@ -35,7 +35,13 @@
           version = "0.1.0";
           src = pkgs.lib.cleanSourceWith {
             src = ./.;
-            filter = path: _type: builtins.baseNameOf path != "target" && builtins.baseNameOf path != "result";
+            filter =
+              path: _type:
+              !builtins.elem (builtins.baseNameOf path) [
+                "example-vault"
+                "result"
+                "target"
+              ];
           };
           cargoLock.lockFile = ./Cargo.lock;
         };

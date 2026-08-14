@@ -8,6 +8,7 @@ license = "MIT"
 [dependencies]
 chrono = { version = "0.4.41", features = ["clock"] }
 clap = { version = "4.5.41", features = ["derive"] }
+comfy-table = "8.0.0"
 fsrs = "=6.6.1"
 serde_yaml_ng = "0.10.0"
 tempfile = "3.20.0"

@@ -7,11 +7,13 @@ retent audit missing
 retent audit invalid
 retent position notes/article.md 241 --date 2026-08-16
 retent rate cards/question.md 3 --date 2026-08-16
-retent queue [--all] [--notes-only|--cards-only] [--limit N]
-retent next
+retent queue [--all] [--notes-only|--cards-only] [--limit N] [--plain]
+retent next [--plain]
 ```
 
 Ratings are `1=Again`, `2=Hard`, `3=Good`, `4=Easy`. Cards use default FSRS parameters at 85% desired retention. Notes use a topic cadence derived from priority, review dates, pass, and presentations in the current pass: `ceil(clamp(2^(3p) × (1.10+0.15p)^(n-1) × 4^(pass-1) × (1+0.5 ln(1+exposure)), 1, 3650))`, where prior exposure has a 30-day half-life. `End Line` is resume-only state and never affects scheduling.
+
+`queue` and `next` render a responsive terminal table by default. `--plain` emits headerless, tab-separated records for pipelines: rank, type, priority, status, due date, age days, interval days, score, and path. A new item's missing interval is an empty field.
 
 History blocks use `<!-- HISTORY:BEGIN -->` and `<!-- HISTORY:END -->` around a `Date | End Line | Pass` note table or `Date | Rating` card table. `position` and `rate` atomically splice that block while preserving the rest of the file.
 

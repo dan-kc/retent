@@ -76,6 +76,9 @@ struct QueueArgs {
     limit: Option<usize>,
     #[arg(long, value_parser = parse_date)]
     as_of: Option<NaiveDate>,
+    /// Print headerless, tab-separated rows for piping to other programs.
+    #[arg(long)]
+    plain: bool,
 }
 
 #[derive(Debug, Args)]
@@ -84,6 +87,9 @@ struct NextArgs {
     root: PathBuf,
     #[arg(long, value_parser = parse_date)]
     as_of: Option<NaiveDate>,
+    /// Print a headerless, tab-separated row for piping to other programs.
+    #[arg(long)]
+    plain: bool,
 }
 
 /// Execute parsed command-line arguments.
@@ -142,6 +148,7 @@ pub fn run_with_clock(cli: Cli, clock: &dyn Clock) -> Result<(), String> {
                 include_upcoming: arguments.all,
                 limit: arguments.limit,
             },
+            arguments.plain,
         ),
         Command::Next(arguments) => run_queue(
             &arguments.root,
@@ -150,6 +157,7 @@ pub fn run_with_clock(cli: Cli, clock: &dyn Clock) -> Result<(), String> {
                 limit: Some(1),
                 ..QueueOptions::default()
             },
+            arguments.plain,
         ),
     }
 }
@@ -190,9 +198,19 @@ fn run_audit(command: AuditCommand) -> Result<(), String> {
     Ok(())
 }
 
-fn run_queue(root: &Path, as_of: NaiveDate, options: QueueOptions) -> Result<(), String> {
+fn run_queue(
+    root: &Path,
+    as_of: NaiveDate,
+    options: QueueOptions,
+    plain: bool,
+) -> Result<(), String> {
     let result = build(root, as_of, options)?;
-    print!("{}", crate::output::queue(&result.items));
+    let output = if plain {
+        crate::output::queue_plain(&result.items)
+    } else {
+        crate::output::queue(&result.items)
+    };
+    print!("{output}");
     if result.diagnostics.is_empty() {
         return Ok(());
     }

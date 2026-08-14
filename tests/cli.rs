@@ -101,3 +101,31 @@ fn queue_filters_conflict() {
         .failure()
         .stderr(predicate::str::contains("cannot be used with"));
 }
+
+#[test]
+fn queue_plain_is_headerless_tsv() {
+    let directory = tempdir().unwrap();
+    fs::write(
+        directory.path().join("note.md"),
+        "---\ntype: note\npriority: 10\n---\n# Note\n",
+    )
+    .unwrap();
+
+    let expected = "1\tnote\t10\tnew\t2026-08-14\t0\t\t6.310\tnote.md\n";
+
+    cargo_bin_cmd!("retent")
+        .args(["queue", "--plain", "--root"])
+        .arg(directory.path())
+        .args(["--as-of", "2026-08-14"])
+        .assert()
+        .success()
+        .stdout(expected);
+
+    cargo_bin_cmd!("retent")
+        .args(["next", "--plain", "--root"])
+        .arg(directory.path())
+        .args(["--as-of", "2026-08-14"])
+        .assert()
+        .success()
+        .stdout(expected);
+}
