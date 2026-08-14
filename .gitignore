@@ -1,0 +1,10 @@
+.direnv
+
+target/
+
+logs/
+*.log
+
+.lspmux.pid
+.lspmux.port
+.git
