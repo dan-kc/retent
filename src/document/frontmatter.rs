@@ -122,19 +122,19 @@ fn parse_mapping(
     if let Some(value) = priority_value {
         match value {
             Value::Number(number) => match number.as_u64() {
-                Some(priority @ 0..=100) => metadata.priority = Some(priority as u8),
+                Some(priority @ 1..=10) => metadata.priority = Some(priority as u8),
                 _ => diagnostics.push(Diagnostic::new(
                     path,
                     priority_line,
                     "priority-invalid",
-                    format!("expected integer 0..=100, found {number}"),
+                    format!("expected integer 1..=10, found {number}"),
                 )),
             },
             _ => diagnostics.push(Diagnostic::new(
                 path,
                 priority_line,
                 "priority-invalid",
-                format!("expected integer 0..=100, found {}", yaml_kind(value)),
+                format!("expected integer 1..=10, found {}", yaml_kind(value)),
             )),
         }
     }
@@ -225,7 +225,7 @@ mod tests {
 
     #[test]
     fn accepts_bom_and_priority_boundaries() {
-        for priority in [0, 100] {
+        for priority in [1, 10] {
             let parsed = result(&format!(
                 "\u{feff}---\ntype: note\npriority: {priority}\nextra: true\n---\n"
             ));
@@ -236,7 +236,7 @@ mod tests {
 
     #[test]
     fn rejects_non_integer_and_out_of_range_priorities() {
-        for priority in ["-1", "101", "10.5", "\"10\""] {
+        for priority in ["0", "11", "10.5", "\"10\""] {
             let parsed = result(&format!("---\ntype: note\npriority: {priority}\n---\n"));
             assert_eq!(parsed.diagnostics[0].code, "priority-invalid");
         }

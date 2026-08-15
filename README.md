@@ -1,6 +1,6 @@
 # retent
 
-`retent` is a Markdown-native incremental-learning queue. Run it in a vault; only `.md` files whose leading YAML front matter contains `type: note|card` and integer `priority: 0..=100` participate. All state is replayed from the marked history table—no database or scheduler fields are written.
+`retent` is a Markdown-native incremental-learning queue. Run it in a vault; only `.md` files whose leading YAML front matter contains `type: note|card` and integer `priority: 1..=10` participate. All state is replayed from the marked history table—no database or scheduler fields are written.
 
 ```console
 retent audit missing
@@ -45,7 +45,7 @@ ones, and every skipped file is reported. Item-level copy errors are shown while
 the remaining items continue; fix the error and run the same command again to
 resume.
 
-Ratings are `1=Again`, `2=Hard`, `3=Good`, `4=Easy`. Cards use default FSRS parameters at 85% desired retention. Notes use a topic cadence derived from priority, review dates, pass, and presentations in the current pass: `ceil(clamp(2^(3p) × (1.10+0.15p)^(n-1) × 4^(pass-1) × (1+0.5 ln(1+exposure)), 1, 3650))`, where prior exposure has a 30-day half-life. `End Line` is resume-only state and never affects scheduling.
+Ratings are `1=Again`, `2=Hard`, `3=Good`, `4=Easy`. Cards use default FSRS parameters at 85% desired retention. Notes use a topic cadence derived from priority, review dates, pass, and presentations in the current pass: `ceil(clamp(2^(3p) × (1.10+0.15p)^(n-1) × 4^(pass-1) × (1+0.5 ln(1+exposure)), 1, 3650))`, where `p = priority / 10` and prior exposure has a 30-day half-life. `End Line` is resume-only state and never affects scheduling.
 
 `list` includes upcoming items. `queue` shows items due today from the current
 directory and takes no options. `next` shows the first due item. All three use the
@@ -59,9 +59,9 @@ interval. `list --paths` emits root-relative paths only.
 `list` and `next` accept metadata filters:
 
 ```console
-retent list --filter 'priority >= 50'
+retent list --filter 'priority >= 5'
 retent list --filter 'tags.any(foo, bar) & tags.none(baz)'
-retent list --filter '(tags.all(foo, bar) or priority = 100) and not tags.any(archived)'
+retent list --filter '(tags.all(foo, bar) or priority = 10) and not tags.any(archived)'
 ```
 
 Scalar operators are `=`, `!=`, `<`, `<=`, `>`, and `>=`. Tag operations are
@@ -75,12 +75,12 @@ composable with every update operation:
 
 ```console
 retent list --paths --filter 'tags.any(machine-learning)' |
-  retent update priority 25 --files-from -
-retent list --paths --filter 'priority <= 25' |
+  retent update priority 3 --files-from -
+retent list --paths --filter 'priority <= 3' |
   retent update tags add reviewed important --files-from -
 retent list --paths --filter 'tags.any(old)' |
   retent update tags add replacement --existing overwrite --files-from -
-retent list --paths --filter 'tags.any(old) & priority <= 50' |
+retent list --paths --filter 'tags.any(old) & priority <= 5' |
   retent update tags rename old new --files-from -
 retent list --paths --filter 'tags.any(archived, stale)' |
   retent update tags remove archived stale --files-from -

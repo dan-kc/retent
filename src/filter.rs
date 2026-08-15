@@ -430,19 +430,19 @@ mod tests {
 
     #[test]
     fn compares_scalar_values() {
-        let metadata = metadata(Some(50), &[]);
-        assert!(matches("priority >= 50", &metadata));
-        assert!(matches("priority = 50", &metadata));
-        assert!(matches("priority != 49", &metadata));
-        assert!(matches("priority < 51", &metadata));
-        assert!(matches("priority <= 50", &metadata));
-        assert!(!matches("priority > 50", &metadata));
+        let metadata = metadata(Some(5), &[]);
+        assert!(matches("priority >= 5", &metadata));
+        assert!(matches("priority = 5", &metadata));
+        assert!(matches("priority != 4", &metadata));
+        assert!(matches("priority < 6", &metadata));
+        assert!(matches("priority <= 5", &metadata));
+        assert!(!matches("priority > 5", &metadata));
         assert!(!matches("priority = 0", &Metadata::default()));
     }
 
     #[test]
     fn evaluates_all_set_operations_as_sets() {
-        let metadata = metadata(Some(50), &["foo", "bar", "foo"]);
+        let metadata = metadata(Some(5), &["foo", "bar", "foo"]);
         assert!(matches("tags.all(foo, bar)", &metadata));
         assert!(matches("tags.any(nope, foo)", &metadata));
         assert!(matches("tags.none(nope, other)", &metadata));
@@ -455,15 +455,15 @@ mod tests {
 
     #[test]
     fn composes_with_words_symbols_parentheses_and_precedence() {
-        let metadata = metadata(Some(50), &["foo"]);
+        let metadata = metadata(Some(5), &["foo"]);
         assert!(matches(
-            "tags.any(foo) & tags.none(baz) and priority >= 50",
+            "tags.any(foo) & tags.none(baz) and priority >= 5",
             &metadata
         ));
         assert!(matches("not tags.any(baz) or priority = 0", &metadata));
-        assert!(matches("tags.any(baz) | priority = 50", &metadata));
+        assert!(matches("tags.any(baz) | priority = 5", &metadata));
         assert!(!matches(
-            "(tags.any(foo) or tags.any(bar)) and !priority >= 50",
+            "(tags.any(foo) or tags.any(bar)) and !priority >= 5",
             &metadata
         ));
     }

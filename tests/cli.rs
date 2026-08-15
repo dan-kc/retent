@@ -117,12 +117,12 @@ fn queue_interleaves_types_and_next_reuses_limit() {
     write_file(
         directory.path(),
         "note.md",
-        "---\ntype: note\npriority: 10\n---\n# Note\n",
+        "---\ntype: note\npriority: 1\n---\n# Note\n",
     );
     write_file(
         directory.path(),
         "card.md",
-        "---\ntype: card\npriority: 20\n---\n## Front\nQ\n## Back\nA\n",
+        "---\ntype: card\npriority: 2\n---\n## Front\nQ\n## Back\nA\n",
     );
 
     cargo_bin_cmd!("retent")
@@ -149,12 +149,12 @@ fn queue_prints_valid_rows_but_fails_for_invalid_files() {
     write_file(
         directory.path(),
         "valid.md",
-        "---\ntype: note\npriority: 10\n---\n",
+        "---\ntype: note\npriority: 1\n---\n",
     );
     write_file(
         directory.path(),
         "invalid.md",
-        "---\ntype: note\npriority: 101\n---\n",
+        "---\ntype: note\npriority: 11\n---\n",
     );
 
     cargo_bin_cmd!("retent")
@@ -184,10 +184,10 @@ fn list_and_next_plain_are_headerless_tsv() {
     write_file(
         directory.path(),
         "note.md",
-        "---\ntype: note\npriority: 10\n---\n# Note\n",
+        "---\ntype: note\npriority: 1\n---\n# Note\n",
     );
 
-    let expected = "1\tnote\t10\tnew\t2026-08-14\t0\t\t6.310\tnote.md\n";
+    let expected = "1\tnote\t1\tnew\t2026-08-14\t0\t\t6.310\tnote.md\n";
 
     cargo_bin_cmd!("retent")
         .args(["list", "--plain", "--root"])
@@ -291,7 +291,7 @@ fn queue_rejects_view_options() {
     for (option, value) in [
         ("--root", "."),
         ("--as-of", "2026-08-14"),
-        ("--filter", "priority = 50"),
+        ("--filter", "priority = 5"),
         ("--limit", "1"),
     ] {
         cargo_bin_cmd!("retent")
@@ -309,18 +309,18 @@ fn list_shows_the_full_scheduled_table_and_supports_composed_filters() {
     write_file(
         directory.path(),
         "foo.md",
-        "---\ntype: note\npriority: 50\ntags: [foo, bar]\n---\n",
+        "---\ntype: note\npriority: 5\ntags: [foo, bar]\n---\n",
     );
     write_file(
         directory.path(),
         "baz.md",
-        "---\ntype: note\npriority: 100\ntags: [foo, baz]\n---\n",
+        "---\ntype: note\npriority: 10\ntags: [foo, baz]\n---\n",
     );
     write_file(
         directory.path(),
         "upcoming.md",
         concat!(
-            "---\ntype: note\npriority: 100\ntags: [future]\n---\n",
+            "---\ntype: note\npriority: 10\ntags: [future]\n---\n",
             "<!-- HISTORY:BEGIN -->\n",
             "| Date | End Line | Pass |\n",
             "| --- | --- | --- |\n",
@@ -352,11 +352,11 @@ fn list_shows_the_full_scheduled_table_and_supports_composed_filters() {
         .arg(directory.path())
         .args([
             "--filter",
-            "priority >= 50 and tags.any(foo, bar) & tags.none(baz)",
+            "priority >= 5 and tags.any(foo, bar) & tags.none(baz)",
         ])
         .assert()
         .success()
-        .stdout("1\tnote\t50\tnew\t2026-08-14\t0\t\t1.000\tfoo.md\n");
+        .stdout("1\tnote\t5\tnew\t2026-08-14\t0\t\t1.000\tfoo.md\n");
 
     cargo_bin_cmd!("retent")
         .args([
@@ -386,7 +386,7 @@ fn list_shows_the_full_scheduled_table_and_supports_composed_filters() {
         .arg(directory.path())
         .assert()
         .success()
-        .stdout("1\tnote\t50\tnew\t2026-08-14\t0\t\t1.000\tfoo.md\n");
+        .stdout("1\tnote\t5\tnew\t2026-08-14\t0\t\t1.000\tfoo.md\n");
 }
 
 #[test]
@@ -395,12 +395,12 @@ fn list_and_next_apply_filters_before_ranking() {
     write_file(
         directory.path(),
         "foo.md",
-        "---\ntype: note\npriority: 10\ntags: [foo]\n---\n",
+        "---\ntype: note\npriority: 1\ntags: [foo]\n---\n",
     );
     write_file(
         directory.path(),
         "bar.md",
-        "---\ntype: note\npriority: 90\ntags: [bar]\n---\n",
+        "---\ntype: note\npriority: 9\ntags: [bar]\n---\n",
     );
 
     for command in ["list", "next"] {
@@ -434,7 +434,7 @@ fn filters_do_not_hide_invalid_files() {
     write_file(
         directory.path(),
         "invalid.md",
-        "---\ntype: note\npriority: 101\ntags: [other]\n---\n",
+        "---\ntype: note\npriority: 11\ntags: [other]\n---\n",
     );
 
     for command in ["list", "next"] {
@@ -470,19 +470,19 @@ fn update_priority_only_changes_documents_matching_the_filter() {
     let wanted = write_file(
         directory.path(),
         "wanted.md",
-        "---\ntype: note\npriority: 10\ntags: [wanted]\n---\n# Wanted\n",
+        "---\ntype: note\npriority: 1\ntags: [wanted]\n---\n# Wanted\n",
     );
     let other = write_file(
         directory.path(),
         "other.md",
-        "---\ntype: note\npriority: 20\ntags: [other]\n---\n# Other\n",
+        "---\ntype: note\npriority: 2\ntags: [other]\n---\n# Other\n",
     );
     let other_original = fs::read_to_string(&other).unwrap();
 
     let listed = filtered_paths(directory.path(), "tags.any(wanted)");
 
     cargo_bin_cmd!("retent")
-        .args(["update", "priority", "75", "--files-from", "-", "--root"])
+        .args(["update", "priority", "7", "--files-from", "-", "--root"])
         .arg(directory.path())
         .write_stdin(listed)
         .assert()
@@ -490,7 +490,7 @@ fn update_priority_only_changes_documents_matching_the_filter() {
         .stdout("updated 1 file\n");
 
     let updated = fs::read_to_string(wanted).unwrap();
-    assert!(updated.contains("priority: 75"));
+    assert!(updated.contains("priority: 7"));
     assert!(updated.ends_with("---\n# Wanted\n"));
     assert_eq!(fs::read_to_string(other).unwrap(), other_original);
 }
@@ -501,10 +501,10 @@ fn update_tags_add_can_keep_or_overwrite_existing_tags_and_deduplicates() {
     let keep = write_file(
         keep_directory.path(),
         "keep.md",
-        "---\ntype: note\npriority: 10\ntags: [old, shared]\n---\n",
+        "---\ntype: note\npriority: 1\ntags: [old, shared]\n---\n",
     );
 
-    let paths = filtered_paths(keep_directory.path(), "priority = 10");
+    let paths = filtered_paths(keep_directory.path(), "priority = 1");
     cargo_bin_cmd!("retent")
         .args([
             "update",
@@ -531,10 +531,10 @@ fn update_tags_add_can_keep_or_overwrite_existing_tags_and_deduplicates() {
     let overwrite = write_file(
         overwrite_directory.path(),
         "overwrite.md",
-        "---\ntype: note\npriority: 10\ntags: [old, shared]\n---\n",
+        "---\ntype: note\npriority: 1\ntags: [old, shared]\n---\n",
     );
 
-    let paths = filtered_paths(overwrite_directory.path(), "priority = 10");
+    let paths = filtered_paths(overwrite_directory.path(), "priority = 1");
     cargo_bin_cmd!("retent")
         .args([
             "update",
@@ -563,15 +563,15 @@ fn update_tags_rename_is_filtered_and_deduplicates_collisions() {
     let wanted = write_file(
         directory.path(),
         "wanted.md",
-        "---\ntype: note\npriority: 10\ntags: [old, new, other]\n---\n",
+        "---\ntype: note\npriority: 1\ntags: [old, new, other]\n---\n",
     );
     let untouched = write_file(
         directory.path(),
         "untouched.md",
-        "---\ntype: note\npriority: 20\ntags: [old]\n---\n",
+        "---\ntype: note\npriority: 2\ntags: [old]\n---\n",
     );
 
-    let paths = filtered_paths(directory.path(), "priority = 10");
+    let paths = filtered_paths(directory.path(), "priority = 1");
     cargo_bin_cmd!("retent")
         .args([
             "update",
@@ -605,15 +605,15 @@ fn update_tags_remove_only_removes_requested_tags_from_filtered_documents() {
     let wanted = write_file(
         directory.path(),
         "wanted.md",
-        "---\ntype: note\npriority: 10\ntags: [keep, remove-one, remove-two]\n---\n",
+        "---\ntype: note\npriority: 1\ntags: [keep, remove-one, remove-two]\n---\n",
     );
     let untouched = write_file(
         directory.path(),
         "untouched.md",
-        "---\ntype: note\npriority: 20\ntags: [remove-one]\n---\n",
+        "---\ntype: note\npriority: 2\ntags: [remove-one]\n---\n",
     );
 
-    let paths = filtered_paths(directory.path(), "priority = 10");
+    let paths = filtered_paths(directory.path(), "priority = 1");
     cargo_bin_cmd!("retent")
         .args([
             "update",
@@ -648,17 +648,17 @@ fn update_preflights_selected_invalid_files_before_writing_any_changes() {
     let valid = write_file(
         directory.path(),
         "valid.md",
-        "---\ntype: note\npriority: 10\ntags: [wanted]\n---\n",
+        "---\ntype: note\npriority: 1\ntags: [wanted]\n---\n",
     );
     write_file(
         directory.path(),
         "invalid.md",
-        "---\ntype: note\npriority: 101\ntags: [other]\n---\n",
+        "---\ntype: note\npriority: 11\ntags: [other]\n---\n",
     );
     let original = fs::read_to_string(&valid).unwrap();
 
     cargo_bin_cmd!("retent")
-        .args(["update", "priority", "75", "--files-from", "-", "--root"])
+        .args(["update", "priority", "7", "--files-from", "-", "--root"])
         .arg(directory.path())
         .write_stdin("valid.md\ninvalid.md\n")
         .assert()
@@ -675,7 +675,7 @@ fn update_accepts_a_named_file_list_and_ignores_duplicate_paths() {
     let document = write_file(
         directory.path(),
         "selected.md",
-        "---\ntype: note\npriority: 10\n---\n",
+        "---\ntype: note\npriority: 1\n---\n",
     );
     let paths = write_file(
         directory.path(),
@@ -684,7 +684,7 @@ fn update_accepts_a_named_file_list_and_ignores_duplicate_paths() {
     );
 
     cargo_bin_cmd!("retent")
-        .args(["update", "priority", "30", "--files-from"])
+        .args(["update", "priority", "3", "--files-from"])
         .arg(paths)
         .args(["--root"])
         .arg(directory.path())
@@ -694,7 +694,7 @@ fn update_accepts_a_named_file_list_and_ignores_duplicate_paths() {
 
     assert_eq!(
         retent::document::read(&document).unwrap().metadata.priority,
-        Some(30)
+        Some(3)
     );
 }
 
@@ -704,13 +704,13 @@ fn update_reports_only_changed_files_and_accepts_an_empty_selection() {
     let document = write_file(
         directory.path(),
         "selected.md",
-        "---\ntype: note\npriority: 30\ntags: [one]\n---\n",
+        "---\ntype: note\npriority: 3\ntags: [one]\n---\n",
     );
     let original = fs::read_to_string(&document).unwrap();
 
     for paths in ["selected.md\n", ""] {
         cargo_bin_cmd!("retent")
-            .args(["update", "priority", "30", "--files-from", "-", "--root"])
+            .args(["update", "priority", "3", "--files-from", "-", "--root"])
             .arg(directory.path())
             .write_stdin(paths)
             .assert()
@@ -727,11 +727,11 @@ fn update_preserves_a_bom_crlf_and_body_content() {
     let document = write_file(
         directory.path(),
         "selected.md",
-        "\u{feff}---\r\ntype: note\r\npriority: 10\r\ntags: [one]\r\n---\r\nBody\r\n",
+        "\u{feff}---\r\ntype: note\r\npriority: 1\r\ntags: [one]\r\n---\r\nBody\r\n",
     );
 
     cargo_bin_cmd!("retent")
-        .args(["update", "priority", "30", "--files-from", "-", "--root"])
+        .args(["update", "priority", "3", "--files-from", "-", "--root"])
         .arg(directory.path())
         .write_stdin("selected.md\n")
         .assert()
@@ -740,7 +740,7 @@ fn update_preserves_a_bom_crlf_and_body_content() {
 
     let updated = fs::read_to_string(document).unwrap();
     assert!(updated.starts_with("\u{feff}---\r\n"));
-    assert!(updated.contains("priority: 30\r\n"));
+    assert!(updated.contains("priority: 3\r\n"));
     assert!(updated.ends_with("---\r\nBody\r\n"));
     assert!(!updated.replace("\r\n", "").contains('\n'));
 }
@@ -753,12 +753,12 @@ fn update_rejects_selected_paths_outside_root() {
     let outside = write_file(
         directory.path(),
         "outside.md",
-        "---\ntype: note\npriority: 10\n---\n",
+        "---\ntype: note\npriority: 1\n---\n",
     );
     let original = fs::read_to_string(&outside).unwrap();
 
     cargo_bin_cmd!("retent")
-        .args(["update", "priority", "30", "--files-from", "-", "--root"])
+        .args(["update", "priority", "3", "--files-from", "-", "--root"])
         .arg(&root)
         .write_stdin("../outside.md\n")
         .assert()
@@ -771,13 +771,13 @@ fn update_rejects_selected_paths_outside_root() {
 #[test]
 fn update_requires_files_from_and_does_not_accept_a_filter() {
     cargo_bin_cmd!("retent")
-        .args(["update", "priority", "30"])
+        .args(["update", "priority", "3"])
         .assert()
         .failure()
         .stderr(predicate::str::contains("--files-from"));
 
     cargo_bin_cmd!("retent")
-        .args(["update", "priority", "30", "--filter", "priority = 10"])
+        .args(["update", "priority", "3", "--filter", "priority = 1"])
         .assert()
         .failure()
         .stderr(predicate::str::contains("unexpected argument '--filter'"));

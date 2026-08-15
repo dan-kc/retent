@@ -493,7 +493,7 @@ mod tests {
 
     #[test]
     fn parses_pipe_variants_and_same_day_note_rows() {
-        let source = "---\ntype: note\npriority: 0\n---\n<!-- HISTORY:BEGIN -->\nDate | End Line | Pass\n:---:|---:|---\n2026-08-14 | 2 | 1\n2026-08-14 | 1 | 2\n<!-- HISTORY:END -->\n";
+        let source = "---\ntype: note\npriority: 1\n---\n<!-- HISTORY:BEGIN -->\nDate | End Line | Pass\n:---:|---:|---\n2026-08-14 | 2 | 1\n2026-08-14 | 1 | 2\n<!-- HISTORY:END -->\n";
         let parsed = crate::document::parse("note.md", source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         assert!(matches!(parsed.history, Some(History::Note(events)) if events.len() == 2));

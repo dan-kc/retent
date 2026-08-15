@@ -77,7 +77,7 @@ enum Command {
 enum UpdateCommand {
     /// Set priority on every selected entry.
     Priority {
-        #[arg(value_parser = clap::value_parser!(u8).range(0..=100))]
+        #[arg(value_parser = clap::value_parser!(u8).range(1..=10))]
         priority: u8,
         #[command(flatten)]
         selection: UpdateSelection,

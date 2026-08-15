@@ -149,7 +149,7 @@ fn schedule_details(
 }
 
 fn priority_weight(priority: u8) -> f64 {
-    10.0_f64.powf((50.0 - priority as f64) / 50.0)
+    10.0_f64.powf(1.0 - 2.0 * super::normalized_priority(priority))
 }
 
 fn compare(left: &QueueItem, right: &QueueItem) -> Ordering {
@@ -191,8 +191,8 @@ mod tests {
 
     #[test]
     fn priority_weight_has_expected_midpoint() {
-        assert_eq!(priority_weight(50), 1.0);
-        assert!(priority_weight(0) > priority_weight(100));
+        assert_eq!(priority_weight(5), 1.0);
+        assert!(priority_weight(1) > priority_weight(10));
     }
 
     #[test]
@@ -205,7 +205,7 @@ mod tests {
             "| 2026-08-14 | 10 | 1 |\n",
             "<!-- HISTORY:END -->\n",
         );
-        write_note(directory.path(), "note.md", 100, history);
+        write_note(directory.path(), "note.md", 10, history);
 
         let hidden = build(
             directory.path(),
@@ -236,8 +236,8 @@ mod tests {
     #[test]
     fn type_filters_select_the_requested_documents() {
         let directory = tempdir().unwrap();
-        write_note(directory.path(), "note.md", 10, "");
-        write_card(directory.path(), "card.md", 10);
+        write_note(directory.path(), "note.md", 1, "");
+        write_card(directory.path(), "card.md", 1);
 
         for (options, expected) in [
             (
@@ -264,9 +264,9 @@ mod tests {
     #[test]
     fn ranks_by_priority_then_path_before_applying_limit() {
         let directory = tempdir().unwrap();
-        write_note(directory.path(), "b.md", 20, "");
-        write_note(directory.path(), "low.md", 80, "");
-        write_note(directory.path(), "a.md", 20, "");
+        write_note(directory.path(), "b.md", 2, "");
+        write_note(directory.path(), "low.md", 8, "");
+        write_note(directory.path(), "a.md", 2, "");
 
         let result = build(
             directory.path(),
@@ -307,10 +307,10 @@ mod tests {
     #[test]
     fn applies_metadata_filter_before_scheduling() {
         let directory = tempdir().unwrap();
-        write_note(directory.path(), "high.md", 20, "");
-        write_note(directory.path(), "low.md", 80, "");
+        write_note(directory.path(), "high.md", 2, "");
+        write_note(directory.path(), "low.md", 8, "");
 
-        let filter = "priority >= 50".parse().unwrap();
+        let filter = "priority >= 5".parse().unwrap();
         let result = build(
             directory.path(),
             date("2026-08-14"),
@@ -327,7 +327,7 @@ mod tests {
         let directory = tempdir().unwrap();
         fs::write(
             directory.path().join("invalid.md"),
-            "---\ntype: note\npriority: 101\ntags: [other]\n---\n",
+            "---\ntype: note\npriority: 11\ntags: [other]\n---\n",
         )
         .unwrap();
 

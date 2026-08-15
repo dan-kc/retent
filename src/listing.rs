@@ -71,14 +71,14 @@ mod tests {
         fs::write(directory.path().join("plain.md"), "plain\n").unwrap();
         fs::write(
             directory.path().join("tagged.md"),
-            "---\npriority: 50\ntags: [foo]\n---\n",
+            "---\npriority: 5\ntags: [foo]\n---\n",
         )
         .unwrap();
 
         let all = scan(directory.path(), None).unwrap();
         assert_eq!(all.entries.len(), 2);
 
-        let filter = "priority >= 50 and tags.any(foo)".parse().unwrap();
+        let filter = "priority >= 5 and tags.any(foo)".parse().unwrap();
         let filtered = scan(directory.path(), Some(&filter)).unwrap();
         assert_eq!(filtered.entries.len(), 1);
         assert_eq!(filtered.entries[0].path, Path::new("tagged.md"));

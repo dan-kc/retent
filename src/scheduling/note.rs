@@ -4,7 +4,7 @@ use chrono::NaiveDate;
 
 use crate::document::NoteEvent;
 
-use super::{ScheduleMetrics, new_metrics, reviewed_metrics};
+use super::{ScheduleMetrics, new_metrics, normalized_priority, reviewed_metrics};
 
 /// Note scheduler settings.
 #[derive(Debug, Clone, Copy)]
@@ -81,7 +81,7 @@ pub fn interval_days(
     recent_exposure: f64,
     config: NoteSchedulerConfig,
 ) -> u32 {
-    let p = priority as f64 / 100.0;
+    let p = normalized_priority(priority);
     let a_factor = 1.10 + 0.15 * p;
     let frequency_growth = 1.0 + 0.5 * (1.0 + recent_exposure).ln();
     let log_interval = 3.0 * p * 2.0_f64.ln()
@@ -121,7 +121,7 @@ mod tests {
 
     proptest! {
         #[test]
-        fn lower_numeric_priority_is_no_longer(low in 0u8..=100, high in 0u8..=100) {
+        fn lower_numeric_priority_is_no_longer(low in 1u8..=10, high in 1u8..=10) {
             let (low, high) = if low <= high {(low, high)} else {(high, low)};
             let config = NoteSchedulerConfig::default();
             prop_assert!(interval_days(low, 1, 1, 0.0, config) <= interval_days(high, 1, 1, 0.0, config));
@@ -130,27 +130,27 @@ mod tests {
         #[test]
         fn increasing_pass_never_shortens(pass in 1u32..u32::MAX) {
             let config = NoteSchedulerConfig::default();
-            prop_assert!(interval_days(50, pass, 2, 1.0, config) <= interval_days(50, pass + 1, 2, 1.0, config));
+            prop_assert!(interval_days(5, pass, 2, 1.0, config) <= interval_days(5, pass + 1, 2, 1.0, config));
         }
 
         #[test]
         fn increasing_presentations_never_shortens(count in 1u32..u32::MAX) {
             let config = NoteSchedulerConfig::default();
-            prop_assert!(interval_days(50, 1, count, 1.0, config) <= interval_days(50, 1, count + 1, 1.0, config));
+            prop_assert!(interval_days(5, 1, count, 1.0, config) <= interval_days(5, 1, count + 1, 1.0, config));
         }
 
         #[test]
         fn exposure_never_shortens(value in 0.0f64..10000.0) {
             let config = NoteSchedulerConfig::default();
-            prop_assert!(interval_days(50, 1, 2, value, config) <= interval_days(50, 1, 2, value + 1.0, config));
+            prop_assert!(interval_days(5, 1, 2, value, config) <= interval_days(5, 1, 2, value + 1.0, config));
         }
 
         #[test]
         fn pressure_advances(days in 1u64..1000) {
             let start = NaiveDate::from_ymd_opt(2020, 1, 1).unwrap();
             let event = NoteEvent { date: start, end_line: 10, pass: 1, source_line: 1 };
-            let early = schedule(std::slice::from_ref(&event), 50, start, NoteSchedulerConfig::default());
-            let late = schedule(&[event], 50, start.checked_add_days(Days::new(days)).unwrap(), NoteSchedulerConfig::default());
+            let early = schedule(std::slice::from_ref(&event), 5, start, NoteSchedulerConfig::default());
+            let late = schedule(&[event], 5, start.checked_add_days(Days::new(days)).unwrap(), NoteSchedulerConfig::default());
             prop_assert!(late.metrics.pressure >= early.metrics.pressure);
         }
     }
@@ -169,15 +169,15 @@ mod tests {
             ..first.clone()
         };
         let config = NoteSchedulerConfig::default();
-        let left = schedule(&[first], 10, date, config);
-        let right = schedule(&[second], 10, date, config);
+        let left = schedule(&[first], 1, date, config);
+        let right = schedule(&[second], 1, date, config);
         assert_eq!(left.metrics, right.metrics);
     }
 
     #[test]
     fn new_note_is_due_immediately_without_resume_state() {
         let as_of = NaiveDate::from_ymd_opt(2026, 8, 14).unwrap();
-        let result = schedule(&[], 50, as_of, NoteSchedulerConfig::default());
+        let result = schedule(&[], 5, as_of, NoteSchedulerConfig::default());
 
         assert_eq!(result.metrics.status, super::super::Status::New);
         assert_eq!(result.metrics.due_date, as_of);
@@ -205,7 +205,7 @@ mod tests {
     fn intervals_are_always_finite() {
         assert_eq!(
             interval_days(
-                100,
+                10,
                 u32::MAX,
                 u32::MAX,
                 f64::MAX,

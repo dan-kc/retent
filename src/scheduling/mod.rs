@@ -6,6 +6,11 @@ pub mod queue;
 
 use chrono::NaiveDate;
 
+/// Convert the user-facing 1–10 priority to the scheduler's 0.1–1.0 scale.
+pub(crate) fn normalized_priority(priority: u8) -> f64 {
+    f64::from(priority) / 10.0
+}
+
 /// Queue lifecycle state as of a supplied date.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {

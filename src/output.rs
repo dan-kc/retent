@@ -209,7 +209,7 @@ mod tests {
     fn plain_queue_is_headerless_tsv_with_one_line_per_item() {
         assert_eq!(
             queue_plain(&[item()]),
-            "1\tnote\t10\toverdue\t2024-08-18\t728\t2\t2296.685\t\
+            "1\tnote\t1\toverdue\t2024-08-18\t728\t2\t2296.685\t\
              example-vault/study-note.md\n"
         );
     }
@@ -285,7 +285,7 @@ mod tests {
         QueueItem {
             path: PathBuf::from("example-vault/study-note.md"),
             element_type: ElementType::Note,
-            priority: 10,
+            priority: 1,
             metrics: metrics.clone(),
             priority_weight: 6.310,
             score: 2296.685,
