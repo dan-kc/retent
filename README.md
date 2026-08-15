@@ -8,10 +8,29 @@ retent audit invalid
 retent position notes/article.md 241 --date 2026-08-16
 retent rate cards/question.md 3 --date 2026-08-16
 retent import anki collection.colpkg [--output my-vault]
+retent list --paths [--filter FILTER] | retent format-list FIELD --style flow|block|toggle
 retent list [OPTIONS]
 retent queue
 retent next [OPTIONS]
+retent update priority PRIORITY --files-from FILE [--root ROOT]
+retent update tags add TAG... --files-from FILE [--existing keep|overwrite] [--root ROOT]
+retent update tags rename FROM TO --files-from FILE [--root ROOT]
+retent update tags remove TAG... --files-from FILE [--root ROOT]
 ```
+
+`format-list` reads newline-delimited Markdown paths from standard input and
+updates them after preflighting the complete selection. It changes only the
+named top-level frontmatter sequence; use `--style flow` for `tags: [one, two]`,
+`--style block` for YAML dash-list syntax, or `--style toggle` to switch between
+them. For example:
+
+```console
+retent list --paths --filter 'tags.any(rust)' | retent format-list tags --style flow
+```
+
+An empty sequence remains `[]`, because YAML has no lossless block-list syntax
+for an empty sequence. Flow conversion rejects per-item comments and multiline
+block items rather than dropping or relocating their content.
 
 `import anki` creates a flat vault of `type: card` Markdown files from an Anki
 collection package. If `--output` is omitted, the vault is created beside the
@@ -49,6 +68,36 @@ Scalar operators are `=`, `!=`, `<`, `<=`, `>`, and `>=`. Tag operations are
 `tags.all(...)`, `tags.any(...)`, `tags.none(...)`, and `tags.exact(...)`.
 Combine them with `and`/`&`, `or`/`|`, `not`/`!`, and parentheses. Quote values
 containing spaces or filter punctuation, such as `tags.any("machine learning")`.
+
+Bulk metadata updates read newline-delimited paths from `--files-from`. Use `-`
+to read standard input, making `list --paths` and other path-producing tools
+composable with every update operation:
+
+```console
+retent list --paths --filter 'tags.any(machine-learning)' |
+  retent update priority 25 --files-from -
+retent list --paths --filter 'priority <= 25' |
+  retent update tags add reviewed important --files-from -
+retent list --paths --filter 'tags.any(old)' |
+  retent update tags add replacement --existing overwrite --files-from -
+retent list --paths --filter 'tags.any(old) & priority <= 50' |
+  retent update tags rename old new --files-from -
+retent list --paths --filter 'tags.any(archived, stale)' |
+  retent update tags remove archived stale --files-from -
+```
+
+Paths emitted by `list --paths` are relative to its root. When using `--root`,
+pass the same root to `update`; relative input paths are resolved beneath it.
+Absolute paths are accepted only when they are inside the root. Blank lines and
+duplicate paths are ignored. A regular file can also be passed to
+`--files-from` instead of standard input.
+
+Tag addition defaults to `--existing keep`, retaining existing tags and
+appending only tags that are not already present. `--existing overwrite`
+replaces the existing tag list. Add, overwrite, and rename all deduplicate tag
+collisions while retaining first-seen order. Every changed file is validated
+and replaced atomically; an invalid selected file aborts the batch before
+changes are written.
 
 History blocks use `<!-- HISTORY:BEGIN -->` and `<!-- HISTORY:END -->` around a `Date | End Line | Pass` note table or `Date | Rating` card table. `position` and `rate` atomically splice that block while preserving the rest of the file.
 

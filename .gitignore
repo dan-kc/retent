@@ -1,17 +1,4 @@
 .direnv
-
 target/
-
-logs/
-*.log
-
-.lspmux.pid
-.lspmux.port
 .git
-
-
-# Added by cargo
-
-/target
 /result
-collection*

@@ -14,6 +14,66 @@ fn write_file(root: &Path, name: &str, contents: impl AsRef<[u8]>) -> PathBuf {
     path
 }
 
+fn filtered_paths(root: &Path, filter: &str) -> Vec<u8> {
+    let output = cargo_bin_cmd!("retent")
+        .args(["list", "--paths", "--filter", filter, "--root"])
+        .arg(root)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    output.stdout
+}
+
+fn format_list(root: &Path, paths: &str, field: &str, style: &str) -> assert_cmd::assert::Assert {
+    let mut command = cargo_bin_cmd!("retent");
+    command
+        .args(["format-list", field, "--style", style, "--root"])
+        .arg(root)
+        .write_stdin(paths)
+        .assert()
+}
+
+#[test]
+fn formats_paths_from_stdin_and_reports_updated_files() {
+    let directory = tempdir().unwrap();
+    let first = write_file(
+        directory.path(),
+        "first.md",
+        "---\ntitle: Example\ntags:\n  - Iterators\n  - Rust\n---\nBody\n",
+    );
+    let second = write_file(
+        directory.path(),
+        "second.md",
+        "---\ntags:\n  - Other\n---\n",
+    );
+    format_list(directory.path(), "first.md\nsecond.md\n", "tags", "flow")
+        .success()
+        .stdout("updated 2 files\n");
+    assert_eq!(
+        fs::read_to_string(first).unwrap(),
+        "---\ntitle: Example\ntags: [Iterators, Rust]\n---\nBody\n"
+    );
+    assert_eq!(
+        fs::read_to_string(second).unwrap(),
+        "---\ntags: [Other]\n---\n"
+    );
+}
+
+#[test]
+fn format_list_preflights_all_paths_before_writing() {
+    let directory = tempdir().unwrap();
+    let valid = write_file(directory.path(), "valid.md", "---\ntags:\n  - one\n---\n");
+    write_file(directory.path(), "invalid.md", "no frontmatter\n");
+    format_list(directory.path(), "valid.md\ninvalid.md\n", "tags", "flow")
+        .failure()
+        .stdout("")
+        .stderr(predicate::str::contains("invalid.md"));
+    assert_eq!(
+        fs::read_to_string(valid).unwrap(),
+        "---\ntags:\n  - one\n---\n"
+    );
+}
+
 #[test]
 fn audits_missing_and_invalid_separately() {
     let directory = tempdir().unwrap();
@@ -402,6 +462,278 @@ fn list_rejects_conflicting_machine_readable_formats() {
             .failure()
             .stderr(predicate::str::contains("cannot be used with"));
     }
+}
+
+#[test]
+fn update_priority_only_changes_documents_matching_the_filter() {
+    let directory = tempdir().unwrap();
+    let wanted = write_file(
+        directory.path(),
+        "wanted.md",
+        "---\ntype: note\npriority: 10\ntags: [wanted]\n---\n# Wanted\n",
+    );
+    let other = write_file(
+        directory.path(),
+        "other.md",
+        "---\ntype: note\npriority: 20\ntags: [other]\n---\n# Other\n",
+    );
+    let other_original = fs::read_to_string(&other).unwrap();
+
+    let listed = filtered_paths(directory.path(), "tags.any(wanted)");
+
+    cargo_bin_cmd!("retent")
+        .args(["update", "priority", "75", "--files-from", "-", "--root"])
+        .arg(directory.path())
+        .write_stdin(listed)
+        .assert()
+        .success()
+        .stdout("updated 1 file\n");
+
+    let updated = fs::read_to_string(wanted).unwrap();
+    assert!(updated.contains("priority: 75"));
+    assert!(updated.ends_with("---\n# Wanted\n"));
+    assert_eq!(fs::read_to_string(other).unwrap(), other_original);
+}
+
+#[test]
+fn update_tags_add_can_keep_or_overwrite_existing_tags_and_deduplicates() {
+    let keep_directory = tempdir().unwrap();
+    let keep = write_file(
+        keep_directory.path(),
+        "keep.md",
+        "---\ntype: note\npriority: 10\ntags: [old, shared]\n---\n",
+    );
+
+    let paths = filtered_paths(keep_directory.path(), "priority = 10");
+    cargo_bin_cmd!("retent")
+        .args([
+            "update",
+            "tags",
+            "add",
+            "shared",
+            "new",
+            "new",
+            "--existing",
+            "keep",
+            "--files-from",
+            "-",
+            "--root",
+        ])
+        .arg(keep_directory.path())
+        .write_stdin(paths)
+        .assert()
+        .success()
+        .stdout("updated 1 file\n");
+    let kept = retent::document::read(&keep).unwrap();
+    assert_eq!(kept.metadata.tags, ["old", "shared", "new"]);
+
+    let overwrite_directory = tempdir().unwrap();
+    let overwrite = write_file(
+        overwrite_directory.path(),
+        "overwrite.md",
+        "---\ntype: note\npriority: 10\ntags: [old, shared]\n---\n",
+    );
+
+    let paths = filtered_paths(overwrite_directory.path(), "priority = 10");
+    cargo_bin_cmd!("retent")
+        .args([
+            "update",
+            "tags",
+            "add",
+            "shared",
+            "new",
+            "new",
+            "--existing",
+            "overwrite",
+            "--files-from",
+            "-",
+            "--root",
+        ])
+        .arg(overwrite_directory.path())
+        .write_stdin(paths)
+        .assert()
+        .success();
+    let overwritten = retent::document::read(&overwrite).unwrap();
+    assert_eq!(overwritten.metadata.tags, ["shared", "new"]);
+}
+
+#[test]
+fn update_tags_rename_is_filtered_and_deduplicates_collisions() {
+    let directory = tempdir().unwrap();
+    let wanted = write_file(
+        directory.path(),
+        "wanted.md",
+        "---\ntype: note\npriority: 10\ntags: [old, new, other]\n---\n",
+    );
+    let untouched = write_file(
+        directory.path(),
+        "untouched.md",
+        "---\ntype: note\npriority: 20\ntags: [old]\n---\n",
+    );
+
+    let paths = filtered_paths(directory.path(), "priority = 10");
+    cargo_bin_cmd!("retent")
+        .args([
+            "update",
+            "tags",
+            "rename",
+            "old",
+            "new",
+            "--files-from",
+            "-",
+            "--root",
+        ])
+        .arg(directory.path())
+        .write_stdin(paths)
+        .assert()
+        .success()
+        .stdout("updated 1 file\n");
+
+    assert_eq!(
+        retent::document::read(&wanted).unwrap().metadata.tags,
+        ["new", "other"]
+    );
+    assert_eq!(
+        retent::document::read(&untouched).unwrap().metadata.tags,
+        ["old"]
+    );
+}
+
+#[test]
+fn update_tags_remove_only_removes_requested_tags_from_filtered_documents() {
+    let directory = tempdir().unwrap();
+    let wanted = write_file(
+        directory.path(),
+        "wanted.md",
+        "---\ntype: note\npriority: 10\ntags: [keep, remove-one, remove-two]\n---\n",
+    );
+    let untouched = write_file(
+        directory.path(),
+        "untouched.md",
+        "---\ntype: note\npriority: 20\ntags: [remove-one]\n---\n",
+    );
+
+    let paths = filtered_paths(directory.path(), "priority = 10");
+    cargo_bin_cmd!("retent")
+        .args([
+            "update",
+            "tags",
+            "remove",
+            "remove-one",
+            "remove-two",
+            "absent",
+            "--files-from",
+            "-",
+            "--root",
+        ])
+        .arg(directory.path())
+        .write_stdin(paths)
+        .assert()
+        .success()
+        .stdout("updated 1 file\n");
+
+    assert_eq!(
+        retent::document::read(&wanted).unwrap().metadata.tags,
+        ["keep"]
+    );
+    assert_eq!(
+        retent::document::read(&untouched).unwrap().metadata.tags,
+        ["remove-one"]
+    );
+}
+
+#[test]
+fn update_preflights_selected_invalid_files_before_writing_any_changes() {
+    let directory = tempdir().unwrap();
+    let valid = write_file(
+        directory.path(),
+        "valid.md",
+        "---\ntype: note\npriority: 10\ntags: [wanted]\n---\n",
+    );
+    write_file(
+        directory.path(),
+        "invalid.md",
+        "---\ntype: note\npriority: 101\ntags: [other]\n---\n",
+    );
+    let original = fs::read_to_string(&valid).unwrap();
+
+    cargo_bin_cmd!("retent")
+        .args(["update", "priority", "75", "--files-from", "-", "--root"])
+        .arg(directory.path())
+        .write_stdin("valid.md\ninvalid.md\n")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("invalid.md:3 [priority-invalid]"))
+        .stderr(predicate::str::contains("no changes made"));
+
+    assert_eq!(fs::read_to_string(valid).unwrap(), original);
+}
+
+#[test]
+fn update_accepts_a_named_file_list_and_ignores_duplicate_paths() {
+    let directory = tempdir().unwrap();
+    let document = write_file(
+        directory.path(),
+        "selected.md",
+        "---\ntype: note\npriority: 10\n---\n",
+    );
+    let paths = write_file(
+        directory.path(),
+        "selection.txt",
+        "selected.md\nselected.md\n",
+    );
+
+    cargo_bin_cmd!("retent")
+        .args(["update", "priority", "30", "--files-from"])
+        .arg(paths)
+        .args(["--root"])
+        .arg(directory.path())
+        .assert()
+        .success()
+        .stdout("updated 1 file\n");
+
+    assert_eq!(
+        retent::document::read(&document).unwrap().metadata.priority,
+        Some(30)
+    );
+}
+
+#[test]
+fn update_rejects_selected_paths_outside_root() {
+    let directory = tempdir().unwrap();
+    let root = directory.path().join("vault");
+    fs::create_dir(&root).unwrap();
+    let outside = write_file(
+        directory.path(),
+        "outside.md",
+        "---\ntype: note\npriority: 10\n---\n",
+    );
+    let original = fs::read_to_string(&outside).unwrap();
+
+    cargo_bin_cmd!("retent")
+        .args(["update", "priority", "30", "--files-from", "-", "--root"])
+        .arg(&root)
+        .write_stdin("../outside.md\n")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("path is outside root"));
+
+    assert_eq!(fs::read_to_string(outside).unwrap(), original);
+}
+
+#[test]
+fn update_requires_files_from_and_does_not_accept_a_filter() {
+    cargo_bin_cmd!("retent")
+        .args(["update", "priority", "30"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--files-from"));
+
+    cargo_bin_cmd!("retent")
+        .args(["update", "priority", "30", "--filter", "priority = 10"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("unexpected argument '--filter'"));
 }
 
 #[test]

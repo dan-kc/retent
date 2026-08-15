@@ -229,7 +229,7 @@ fn validate_candidate(path: &Path, candidate: &str, expected: ElementType) -> Re
     Ok(())
 }
 
-fn atomic_replace(path: &Path, bytes: &[u8]) -> Result<(), String> {
+pub(crate) fn atomic_replace(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let directory = path
         .parent()
         .ok_or_else(|| format!("{}: path has no parent directory", path.display()))?;

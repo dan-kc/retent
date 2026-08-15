@@ -5,6 +5,7 @@ mod frontmatter;
 mod history;
 mod table;
 
+pub(crate) use edit::atomic_replace;
 pub use edit::{append_card_event, append_note_event};
 pub use history::{render_card_history, render_note_history};
 

@@ -65,6 +65,7 @@
               nil
               nixfmt
               ra-mux.packages.${system}.default
+              prettier
             ]
             ++ scripts;
             shellHook = ''
