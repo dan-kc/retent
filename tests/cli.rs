@@ -489,10 +489,34 @@ fn update_priority_only_changes_documents_matching_the_filter() {
         .success()
         .stdout("updated 1 file\n");
 
-    let updated = fs::read_to_string(wanted).unwrap();
-    assert!(updated.contains("priority: 7"));
-    assert!(updated.ends_with("---\n# Wanted\n"));
+    assert_eq!(
+        fs::read_to_string(wanted).unwrap(),
+        "---\ntype: note\npriority: 7\ntags: [wanted]\n---\n# Wanted\n"
+    );
     assert_eq!(fs::read_to_string(other).unwrap(), other_original);
+}
+
+#[test]
+fn update_priority_preserves_all_other_frontmatter_formatting() {
+    let directory = tempdir().unwrap();
+    let document = write_file(
+        directory.path(),
+        "selected.md",
+        "---\n# Keep this comment\ntype: note\npriority : 1  # Keep this too\ntags: [Low Level]\nextra: {nested: [one, two]}\n---\nBody\n",
+    );
+
+    cargo_bin_cmd!("retent")
+        .args(["update", "priority", "3", "--files-from", "-", "--root"])
+        .arg(directory.path())
+        .write_stdin("selected.md\n")
+        .assert()
+        .success()
+        .stdout("updated 1 file\n");
+
+    assert_eq!(
+        fs::read_to_string(document).unwrap(),
+        "---\n# Keep this comment\ntype: note\npriority : 3  # Keep this too\ntags: [Low Level]\nextra: {nested: [one, two]}\n---\nBody\n"
+    );
 }
 
 #[test]

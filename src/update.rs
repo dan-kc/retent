@@ -13,9 +13,7 @@ pub fn priority(root: &Path, paths: &[PathBuf], priority: u8) -> Result<usize, S
         if document.metadata.priority == Some(priority) {
             return Ok(document.source.clone());
         }
-        let candidate = metadata_candidate(document, |mapping| {
-            mapping.insert(key("priority"), Value::Number(priority.into()));
-        })?;
+        let candidate = priority_candidate(document, priority)?;
         validate_candidate(document, &candidate, |updated| {
             updated.metadata.priority == Some(priority)
         })?;
@@ -185,30 +183,83 @@ fn resolve_selected_path(root: &Path, supplied: &Path) -> Result<PathBuf, String
     Ok(resolved)
 }
 
+fn priority_candidate(document: &ParsedDocument, priority: u8) -> Result<String, String> {
+    let source = &document.source;
+    let (yaml_start, yaml_end) = frontmatter_bounds(document)?;
+    let yaml = &source[yaml_start..yaml_end];
+    let value_span = top_level_scalar_span(yaml, "priority").ok_or_else(|| {
+        format!(
+            "{}: cannot locate top-level priority scalar; no changes made",
+            document.path.display()
+        )
+    })?;
+
+    let mut candidate = String::with_capacity(source.len() + 1);
+    candidate.push_str(&source[..yaml_start + value_span.start]);
+    candidate.push_str(&priority.to_string());
+    candidate.push_str(&source[yaml_start + value_span.end..]);
+    Ok(candidate)
+}
+
+fn frontmatter_bounds(document: &ParsedDocument) -> Result<(usize, usize), String> {
+    let source = &document.source;
+    let without_bom = source.strip_prefix('\u{feff}').unwrap_or(source);
+    let bom_len = source.len() - without_bom.len();
+    let yaml_start = without_bom
+        .find('\n')
+        .map(|index| bom_len + index + 1)
+        .ok_or_else(|| format!("{}: front matter has no body", document.path.display()))?;
+
+    let mut yaml_end = None;
+    let mut offset = yaml_start;
+    for line in source[yaml_start..].split_inclusive('\n') {
+        if line.trim_end_matches(['\r', '\n']) == "---" {
+            yaml_end = Some(offset);
+            break;
+        }
+        offset += line.len();
+    }
+    let yaml_end =
+        yaml_end.ok_or_else(|| format!("{}: front matter is unclosed", document.path.display()))?;
+    Ok((yaml_start, yaml_end))
+}
+
+fn top_level_scalar_span(yaml: &str, key: &str) -> Option<std::ops::Range<usize>> {
+    let mut line_start = 0;
+    for line_with_ending in yaml.split_inclusive('\n') {
+        let line = line_with_ending.trim_end_matches(['\r', '\n']);
+        let Some(after_key) = line.strip_prefix(key) else {
+            line_start += line_with_ending.len();
+            continue;
+        };
+        let whitespace = after_key.len() - after_key.trim_start_matches([' ', '\t']).len();
+        let after_whitespace = &after_key[whitespace..];
+        let Some(after_colon) = after_whitespace.strip_prefix(':') else {
+            line_start += line_with_ending.len();
+            continue;
+        };
+        let value_whitespace =
+            after_colon.len() - after_colon.trim_start_matches([' ', '\t']).len();
+        let value = &after_colon[value_whitespace..];
+        let value_len = value
+            .find(|character: char| character.is_whitespace() || character == '#')
+            .unwrap_or(value.len());
+        if value_len == 0 {
+            return None;
+        }
+        let value_start = line_start + key.len() + whitespace + 1 + value_whitespace;
+        return Some(value_start..value_start + value_len);
+    }
+    None
+}
+
 fn metadata_candidate(
     document: &ParsedDocument,
     mutate: impl FnOnce(&mut Mapping),
 ) -> Result<String, String> {
     let source = &document.source;
-    let without_bom = source.strip_prefix('\u{feff}').unwrap_or(source);
-    let bom_len = source.len() - without_bom.len();
-    let opening_end = without_bom
-        .find('\n')
-        .map(|index| bom_len + index + 1)
-        .ok_or_else(|| format!("{}: front matter has no body", document.path.display()))?;
-
-    let mut closing_start = None;
-    let mut offset = opening_end;
-    for line in source[opening_end..].split_inclusive('\n') {
-        if line.trim_end_matches(['\r', '\n']) == "---" {
-            closing_start = Some(offset);
-            break;
-        }
-        offset += line.len();
-    }
-    let closing_start = closing_start
-        .ok_or_else(|| format!("{}: front matter is unclosed", document.path.display()))?;
-    let yaml = &source[opening_end..closing_start];
+    let (yaml_start, yaml_end) = frontmatter_bounds(document)?;
+    let yaml = &source[yaml_start..yaml_end];
     let mut mapping: Mapping = serde_yaml_ng::from_str(yaml).map_err(|error| {
         format!(
             "{}: cannot parse front matter: {error}",
@@ -222,16 +273,16 @@ fn metadata_candidate(
             document.path.display()
         )
     })?;
-    let rendered = if source[..opening_end].ends_with("\r\n") {
+    let rendered = if source[..yaml_start].ends_with("\r\n") {
         rendered.replace('\n', "\r\n")
     } else {
         rendered
     };
 
     let mut candidate = String::with_capacity(source.len() + rendered.len());
-    candidate.push_str(&source[..opening_end]);
+    candidate.push_str(&source[..yaml_start]);
     candidate.push_str(&rendered);
-    candidate.push_str(&source[closing_start..]);
+    candidate.push_str(&source[yaml_end..]);
     Ok(candidate)
 }
 
