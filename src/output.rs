@@ -181,7 +181,7 @@ mod tests {
     #[test]
     fn queue_uses_comfy_table_and_only_displays_the_final_score() {
         let item = item();
-        let output = queue(std::slice::from_ref(&item), false);
+        let output = queue_with_width(std::slice::from_ref(&item), false, Some(200));
 
         assert!(output.contains("═"));
         assert!(output.contains("Prio"));
@@ -231,7 +231,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        let output = queue(&items, false);
+        let output = queue_with_width(&items, false, Some(200));
         assert_eq!(output.matches(".md").count(), 501);
         assert!(
             output
@@ -249,7 +249,7 @@ mod tests {
 
         let output = queue_with_width(&[item], false, Some(80));
         assert_eq!(output.lines().count(), 5);
-        assert!(output.lines().all(|line| line.chars().count() <= 80));
+        assert!(output.lines().all(|line| visible_width(line) <= 80));
         assert!(output.contains('…'));
         assert!(!output.contains("└─"));
     }
@@ -272,6 +272,23 @@ mod tests {
         assert!(output.lines().count() > 5);
         assert!(!output.contains('…'));
         assert!(collapsed.contains(path));
+    }
+
+    fn visible_width(line: &str) -> usize {
+        let mut characters = line.chars();
+        let mut width = 0;
+        while let Some(character) = characters.next() {
+            if character == '\x1b' && characters.next() == Some('[') {
+                for control in characters.by_ref() {
+                    if ('@'..='~').contains(&control) {
+                        break;
+                    }
+                }
+            } else {
+                width += 1;
+            }
+        }
+        width
     }
 
     fn item() -> QueueItem {
