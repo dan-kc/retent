@@ -27,6 +27,7 @@ fn queue_with_width(items: &[QueueItem], wrap: bool, width: Option<u16>) -> Stri
             heading("Age", CellAlignment::Right),
             heading("Int", CellAlignment::Right),
             heading("Score", CellAlignment::Right),
+            heading("Details", CellAlignment::Left),
             heading("Path", CellAlignment::Left),
         ]);
     if let Some(width) = width {
@@ -36,8 +37,10 @@ fn queue_with_width(items: &[QueueItem], wrap: bool, width: Option<u16>) -> Stri
         column.set_padding((0, 0));
         if index < 8 {
             column.set_constraint(ColumnConstraint::ContentWidth);
+        } else if index == 8 {
+            column.set_constraint(ColumnConstraint::LowerBoundary(Width::Fixed(7)));
         } else {
-            column.set_constraint(ColumnConstraint::LowerBoundary(Width::Fixed(20)));
+            column.set_constraint(ColumnConstraint::LowerBoundary(Width::Fixed(4)));
         }
     }
 
@@ -58,6 +61,7 @@ fn queue_with_width(items: &[QueueItem], wrap: bool, width: Option<u16>) -> Stri
             right(format!("{:.3}", item.score))
                 .fg(Color::Cyan)
                 .add_attribute(Attribute::Bold),
+            Cell::new(details(item)),
             Cell::new(item.path.display()),
         ]);
         if !wrap {
@@ -66,21 +70,7 @@ fn queue_with_width(items: &[QueueItem], wrap: bool, width: Option<u16>) -> Stri
         table.add_row(row);
     }
 
-    let rank_width = format!("#{}", items.len()).len();
-    let mut detail_output = String::new();
-    for (index, item) in items.iter().enumerate() {
-        detail_output.push_str(&format!(
-            "{:>rank_width$} └─ {}\n",
-            format!("#{}", index + 1),
-            details(item),
-        ));
-    }
-
-    if items.is_empty() {
-        format!("{table}\n")
-    } else {
-        format!("{table}\n\n{detail_output}")
-    }
+    format!("{table}\n")
 }
 
 /// Render one root-relative path per scheduled item.
@@ -196,9 +186,16 @@ mod tests {
         assert!(output.contains("═"));
         assert!(output.contains("Prio"));
         assert!(output.contains("Score"));
+        assert!(output.contains("Details"));
         assert!(output.contains("2296.685"));
         assert!(!output.contains("Pressure"));
         assert!(!output.contains("P-weight"));
+        assert!(output.lines().any(|line| {
+            line.contains("example-vault/study-note.md")
+                && line.contains("Pass 1")
+                && line.contains("resume at line 4")
+        }));
+        assert!(!output.contains("\n\n"));
         assert_eq!(
             details(&item),
             "Pass 1 · 1 read this pass · recent exposure 0.00 · resume at line 4"
@@ -241,7 +238,7 @@ mod tests {
                 .lines()
                 .any(|line| line.contains("501") && line.contains("item-501.md"))
         );
-        assert!(output.contains("#501"));
+        assert_eq!(output.matches("resume at line 4").count(), 501);
     }
 
     #[test]
@@ -251,9 +248,10 @@ mod tests {
             PathBuf::from("collection-2026-08-14@19-02-55/23521b46828533e15dd5424fda38a94a.md");
 
         let output = queue_with_width(&[item], false, Some(80));
-        let table = output.split_once("\n\n").unwrap().0;
-        assert_eq!(table.lines().count(), 5);
-        assert!(table.contains('…'));
+        assert_eq!(output.lines().count(), 5);
+        assert!(output.lines().all(|line| line.chars().count() <= 80));
+        assert!(output.contains('…'));
+        assert!(!output.contains("└─"));
     }
 
     #[test]
@@ -261,15 +259,18 @@ mod tests {
         let mut item = item();
         let path = "collection-2026-08-14@19-02-55/23521b46828533e15dd5424fda38a94a.md";
         item.path = PathBuf::from(path);
+        let Details::Note(note) = &mut item.details else {
+            unreachable!();
+        };
+        note.pass = None;
 
         let output = queue_with_width(&[item], true, Some(80));
-        let table = output.split_once("\n\n").unwrap().0;
-        let collapsed = table
+        let collapsed = output
             .chars()
             .filter(|character| !character.is_whitespace())
             .collect::<String>();
-        assert!(table.lines().count() > 5);
-        assert!(!table.contains('…'));
+        assert!(output.lines().count() > 5);
+        assert!(!output.contains('…'));
         assert!(collapsed.contains(path));
     }
 

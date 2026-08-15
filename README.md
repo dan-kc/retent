@@ -49,8 +49,8 @@ Ratings are `1=Again`, `2=Hard`, `3=Good`, `4=Easy`. Cards use default FSRS para
 
 `list` includes upcoming items. `queue` shows items due today from the current
 directory and takes no options. `next` shows the first due item. All three use the
-same table. Rows are truncated to one line; use `--wrap` with `list` or `next` to
-show full cells.
+same table, with scheduler details kept beside their item. Rows are truncated to
+one line; use `--wrap` with `list` or `next` to show full cells.
 
 `list --plain` and `next --plain` emit tab-separated fields: rank, type, priority,
 status, due date, age days, interval days, score, and path. A new item has an empty
