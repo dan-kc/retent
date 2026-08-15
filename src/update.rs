@@ -1,6 +1,6 @@
 //! Bulk metadata updates for an explicit list of paths.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -10,6 +10,9 @@ use crate::document::{Classification, ParsedDocument, parse};
 /// Set the priority of every selected valid document.
 pub fn priority(root: &Path, paths: &[PathBuf], priority: u8) -> Result<usize, String> {
     update_selected(root, paths, |document| {
+        if document.metadata.priority == Some(priority) {
+            return Ok(document.source.clone());
+        }
         let candidate = metadata_candidate(document, |mapping| {
             mapping.insert(key("priority"), Value::Number(priority.into()));
         })?;
@@ -31,58 +34,60 @@ pub fn tags_add(
     overwrite: bool,
 ) -> Result<usize, String> {
     let requested = deduplicate(tags.iter().cloned());
-    update_selected(root, paths, |document| {
+    mutate_tags(root, paths, |document| {
         let mut updated = if overwrite {
             Vec::new()
         } else {
             deduplicate(document.metadata.tags.iter().cloned())
         };
+        let mut present: HashSet<_> = updated.iter().cloned().collect();
         for tag in &requested {
-            if !updated.contains(tag) {
+            if present.insert(tag.clone()) {
                 updated.push(tag.clone());
             }
         }
-        let candidate = metadata_candidate(document, |mapping| {
-            mapping.insert(key("tags"), tags_value(&updated));
-        })?;
-        validate_candidate(document, &candidate, |document| {
-            document.metadata.tags == updated
-        })?;
-        Ok(candidate)
+        updated
     })
 }
 
 /// Rename a tag on every selected valid document.
 pub fn tags_rename(root: &Path, paths: &[PathBuf], from: &str, to: &str) -> Result<usize, String> {
-    update_selected(root, paths, |document| {
-        let updated = deduplicate(document.metadata.tags.iter().map(|tag| {
+    mutate_tags(root, paths, |document| {
+        deduplicate(document.metadata.tags.iter().map(|tag| {
             if tag == from {
                 to.to_owned()
             } else {
                 tag.clone()
             }
-        }));
-        let candidate = metadata_candidate(document, |mapping| {
-            mapping.insert(key("tags"), tags_value(&updated));
-        })?;
-        validate_candidate(document, &candidate, |document| {
-            document.metadata.tags == updated
-        })?;
-        Ok(candidate)
+        }))
     })
 }
 
 /// Remove tags from every selected valid document.
 pub fn tags_remove(root: &Path, paths: &[PathBuf], tags: &[String]) -> Result<usize, String> {
-    update_selected(root, paths, |document| {
-        let updated = deduplicate(
+    let removed: HashSet<_> = tags.iter().map(String::as_str).collect();
+    mutate_tags(root, paths, |document| {
+        deduplicate(
             document
                 .metadata
                 .tags
                 .iter()
-                .filter(|tag| !tags.contains(tag))
+                .filter(|tag| !removed.contains(tag.as_str()))
                 .cloned(),
-        );
+        )
+    })
+}
+
+fn mutate_tags(
+    root: &Path,
+    paths: &[PathBuf],
+    mutate: impl Fn(&ParsedDocument) -> Vec<String>,
+) -> Result<usize, String> {
+    update_selected(root, paths, |document| {
+        let updated = mutate(document);
+        if updated == document.metadata.tags {
+            return Ok(document.source.clone());
+        }
         let candidate = metadata_candidate(document, |mapping| {
             mapping.insert(key("tags"), tags_value(&updated));
         })?;
@@ -130,7 +135,9 @@ fn update_selected(
             Classification::Valid => {}
         }
         let candidate = candidate_for(&document)?;
-        candidates.push((path, candidate));
+        if candidate != document.source {
+            candidates.push((path, candidate));
+        }
     }
 
     let count = candidates.len();
@@ -215,6 +222,11 @@ fn metadata_candidate(
             document.path.display()
         )
     })?;
+    let rendered = if source[..opening_end].ends_with("\r\n") {
+        rendered.replace('\n', "\r\n")
+    } else {
+        rendered
+    };
 
     let mut candidate = String::with_capacity(source.len() + rendered.len());
     candidate.push_str(&source[..opening_end]);
@@ -248,8 +260,9 @@ fn tags_value(tags: &[String]) -> Value {
 
 fn deduplicate(tags: impl IntoIterator<Item = String>) -> Vec<String> {
     let mut unique = Vec::new();
+    let mut seen = HashSet::new();
     for tag in tags {
-        if !unique.contains(&tag) {
+        if seen.insert(tag.clone()) {
             unique.push(tag);
         }
     }

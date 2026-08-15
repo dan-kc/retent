@@ -699,6 +699,53 @@ fn update_accepts_a_named_file_list_and_ignores_duplicate_paths() {
 }
 
 #[test]
+fn update_reports_only_changed_files_and_accepts_an_empty_selection() {
+    let directory = tempdir().unwrap();
+    let document = write_file(
+        directory.path(),
+        "selected.md",
+        "---\ntype: note\npriority: 30\ntags: [one]\n---\n",
+    );
+    let original = fs::read_to_string(&document).unwrap();
+
+    for paths in ["selected.md\n", ""] {
+        cargo_bin_cmd!("retent")
+            .args(["update", "priority", "30", "--files-from", "-", "--root"])
+            .arg(directory.path())
+            .write_stdin(paths)
+            .assert()
+            .success()
+            .stdout("updated 0 files\n");
+    }
+
+    assert_eq!(fs::read_to_string(document).unwrap(), original);
+}
+
+#[test]
+fn update_preserves_a_bom_crlf_and_body_content() {
+    let directory = tempdir().unwrap();
+    let document = write_file(
+        directory.path(),
+        "selected.md",
+        "\u{feff}---\r\ntype: note\r\npriority: 10\r\ntags: [one]\r\n---\r\nBody\r\n",
+    );
+
+    cargo_bin_cmd!("retent")
+        .args(["update", "priority", "30", "--files-from", "-", "--root"])
+        .arg(directory.path())
+        .write_stdin("selected.md\n")
+        .assert()
+        .success()
+        .stdout("updated 1 file\n");
+
+    let updated = fs::read_to_string(document).unwrap();
+    assert!(updated.starts_with("\u{feff}---\r\n"));
+    assert!(updated.contains("priority: 30\r\n"));
+    assert!(updated.ends_with("---\r\nBody\r\n"));
+    assert!(!updated.replace("\r\n", "").contains('\n'));
+}
+
+#[test]
 fn update_rejects_selected_paths_outside_root() {
     let directory = tempdir().unwrap();
     let root = directory.path().join("vault");

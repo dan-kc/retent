@@ -21,7 +21,7 @@ pub fn format_paths(
         .canonicalize()
         .map_err(|error| format!("{}: {error}", root.display()))?;
     let mut edits = Vec::new();
-    let mut seen = Vec::new();
+    let mut seen = std::collections::HashSet::new();
     for relative in paths {
         if relative.is_absolute()
             || relative
@@ -53,10 +53,9 @@ pub fn format_paths(
                 relative.display()
             ));
         }
-        if seen.contains(&resolved) {
+        if !seen.insert(resolved.clone()) {
             continue;
         }
-        seen.push(resolved.clone());
         let source = fs::read_to_string(&resolved)
             .map_err(|error| format!("{}: {error}", relative.display()))?;
         let candidate = format(&source, field, style)
@@ -66,7 +65,7 @@ pub fn format_paths(
         }
     }
     for (path, candidate) in &edits {
-        fs::write(path, candidate).map_err(|error| format!("{}: {error}", path.display()))?;
+        crate::document::atomic_replace(path, candidate.as_bytes())?;
     }
     Ok(edits.len())
 }
