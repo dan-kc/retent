@@ -47,10 +47,11 @@ resume.
 
 Ratings are `1=Again`, `2=Hard`, `3=Good`, `4=Easy`. Cards use default FSRS parameters at 85% desired retention. Notes use a topic cadence derived from priority, review dates, pass, and presentations in the current pass: `ceil(clamp(2^(3p) × (1.10+0.15p)^(n-1) × 4^(pass-1) × (1+0.5 ln(1+exposure)), 1, 3650))`, where `p = priority / 10` and prior exposure has a 30-day half-life. `End Line` is resume-only state and never affects scheduling.
 
-`list` includes upcoming items. `queue` shows items due today from the current
-directory and takes no options. `next` shows the first due item. All three use the
-same table, with scheduler details kept beside their item. Rows are truncated to
-one line; use `--wrap` with `list` or `next` to show full cells.
+`list` includes upcoming items and accepts `--limit COUNT` to cap its output.
+`queue` shows at most the first five items due today from the current directory
+and takes no options. `next` shows the first due item. All three use the same
+table, with scheduler details kept beside their item. Rows are truncated to one
+line; use `--wrap` with `list` or `next` to show full cells.
 
 `list --plain` and `next --plain` emit tab-separated fields: rank, type, priority,
 status, due date, age days, interval days, score, and path. A new item has an empty

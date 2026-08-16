@@ -144,6 +144,39 @@ fn queue_interleaves_types_and_next_reuses_limit() {
 }
 
 #[test]
+fn queue_shows_at_most_five_and_list_limit_is_configurable() {
+    let directory = tempdir().unwrap();
+    for priority in 1..=6 {
+        write_file(
+            directory.path(),
+            &format!("note-{priority}.md"),
+            format!("---\ntype: note\npriority: {priority}\n---\n"),
+        );
+    }
+
+    let mut queue = cargo_bin_cmd!("retent");
+    queue
+        .arg("queue")
+        .current_dir(directory.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("note-1.md"))
+        .stdout(predicate::str::contains("note-2.md"))
+        .stdout(predicate::str::contains("note-3.md"))
+        .stdout(predicate::str::contains("note-4.md"))
+        .stdout(predicate::str::contains("note-5.md"))
+        .stdout(predicate::str::contains("note-6.md").not());
+
+    cargo_bin_cmd!("retent")
+        .args(["list", "--paths", "--limit", "2", "--root"])
+        .arg(directory.path())
+        .args(["--as-of", "2026-08-14"])
+        .assert()
+        .success()
+        .stdout("note-1.md\nnote-2.md\n");
+}
+
+#[test]
 fn queue_prints_valid_rows_but_fails_for_invalid_files() {
     let directory = tempdir().unwrap();
     write_file(

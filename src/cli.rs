@@ -190,6 +190,7 @@ struct ListArgs {
     notes_only: bool,
     #[arg(long, conflicts_with = "notes_only")]
     cards_only: bool,
+    /// Show at most this many entries.
     #[arg(long)]
     limit: Option<usize>,
     /// Match entries using scalar, set, and boolean expressions.
@@ -273,7 +274,10 @@ pub fn run_with_clock(cli: Cli, clock: &dyn Clock) -> Result<(), String> {
         Command::Queue => run_list(
             Path::new("."),
             clock.today(),
-            QueueOptions::default(),
+            QueueOptions {
+                limit: Some(5),
+                ..QueueOptions::default()
+            },
             false,
             false,
             false,
