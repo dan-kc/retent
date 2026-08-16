@@ -2,6 +2,7 @@
 
 pub mod cli;
 pub mod clock;
+pub mod config;
 pub mod diagnostics;
 pub mod discover;
 pub mod document;

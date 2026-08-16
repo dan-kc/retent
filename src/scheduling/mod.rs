@@ -6,6 +6,16 @@ pub mod queue;
 
 use chrono::NaiveDate;
 
+use self::card::CardSchedulerConfig;
+use self::note::NoteSchedulerConfig;
+
+/// Settings shared by every scheduling entry point.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SchedulerConfig {
+    pub card: CardSchedulerConfig,
+    pub note: NoteSchedulerConfig,
+}
+
 /// Convert the user-facing 1–10 priority to the scheduler's 0.1–1.0 scale.
 pub(crate) fn normalized_priority(priority: u8) -> f64 {
     f64::from(priority) / 10.0

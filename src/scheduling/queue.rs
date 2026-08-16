@@ -10,9 +10,9 @@ use crate::document::{Classification, ElementType, History};
 use crate::filter::Filter;
 use crate::listing::scan;
 
-use super::ScheduleMetrics;
-use super::card::{CardSchedule, CardSchedulerConfig};
-use super::note::{NoteSchedule, NoteSchedulerConfig};
+use super::card::CardSchedule;
+use super::note::NoteSchedule;
+use super::{ScheduleMetrics, SchedulerConfig};
 
 /// Type-specific queue details.
 #[derive(Debug, Clone)]
@@ -45,8 +45,7 @@ pub struct QueueItem {
 /// Queue filtering and visibility options.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct QueueOptions {
-    pub notes_only: bool,
-    pub cards_only: bool,
+    pub element_type: Option<ElementType>,
     pub include_upcoming: bool,
     pub limit: Option<usize>,
 }
@@ -63,6 +62,7 @@ pub fn build(
     as_of: NaiveDate,
     options: QueueOptions,
     filter: Option<&Filter>,
+    scheduler: SchedulerConfig,
 ) -> Result<QueueResult, String> {
     let mut items = Vec::new();
     let listed = scan(root, filter)?;
@@ -78,13 +78,20 @@ pub fn build(
             Classification::Valid => {}
         }
         let element_type = document.metadata.element_type.unwrap();
-        if (options.notes_only && element_type != ElementType::Note)
-            || (options.cards_only && element_type != ElementType::Card)
+        if options
+            .element_type
+            .is_some_and(|selected| selected != element_type)
         {
             continue;
         }
         let priority = document.metadata.priority.unwrap();
-        let details = schedule_details(element_type, document.history.as_ref(), priority, as_of)?;
+        let details = schedule_details(
+            element_type,
+            document.history.as_ref(),
+            priority,
+            as_of,
+            scheduler,
+        )?;
         let metrics = details.metrics().clone();
         if !options.include_upcoming && metrics.status == super::Status::Upcoming {
             continue;
@@ -114,6 +121,7 @@ fn schedule_details(
     history: Option<&History>,
     priority: u8,
     as_of: NaiveDate,
+    scheduler: SchedulerConfig,
 ) -> Result<Details, String> {
     match element_type {
         ElementType::Note => {
@@ -128,7 +136,7 @@ fn schedule_details(
                 events,
                 priority,
                 as_of,
-                NoteSchedulerConfig::default(),
+                scheduler.note,
             )))
         }
         ElementType::Card => {
@@ -142,7 +150,7 @@ fn schedule_details(
             Ok(Details::Card(super::card::schedule(
                 events,
                 as_of,
-                CardSchedulerConfig::default(),
+                scheduler.card,
             )?))
         }
     }
@@ -212,6 +220,7 @@ mod tests {
             date("2026-08-14"),
             QueueOptions::default(),
             None,
+            SchedulerConfig::default(),
         )
         .unwrap();
         assert!(hidden.items.is_empty());
@@ -224,6 +233,7 @@ mod tests {
                 ..QueueOptions::default()
             },
             None,
+            SchedulerConfig::default(),
         )
         .unwrap();
         assert_eq!(visible.items.len(), 1);
@@ -242,20 +252,27 @@ mod tests {
         for (options, expected) in [
             (
                 QueueOptions {
-                    notes_only: true,
+                    element_type: Some(ElementType::Note),
                     ..QueueOptions::default()
                 },
                 ElementType::Note,
             ),
             (
                 QueueOptions {
-                    cards_only: true,
+                    element_type: Some(ElementType::Card),
                     ..QueueOptions::default()
                 },
                 ElementType::Card,
             ),
         ] {
-            let result = build(directory.path(), date("2026-08-14"), options, None).unwrap();
+            let result = build(
+                directory.path(),
+                date("2026-08-14"),
+                options,
+                None,
+                SchedulerConfig::default(),
+            )
+            .unwrap();
             assert_eq!(result.items.len(), 1);
             assert_eq!(result.items[0].element_type, expected);
         }
@@ -276,6 +293,7 @@ mod tests {
                 ..QueueOptions::default()
             },
             None,
+            SchedulerConfig::default(),
         )
         .unwrap();
         let paths: Vec<_> = result
@@ -297,6 +315,7 @@ mod tests {
             date("2026-08-14"),
             QueueOptions::default(),
             None,
+            SchedulerConfig::default(),
         )
         .unwrap();
         assert!(result.items.is_empty());
@@ -316,6 +335,7 @@ mod tests {
             date("2026-08-14"),
             QueueOptions::default(),
             Some(&filter),
+            SchedulerConfig::default(),
         )
         .unwrap();
         assert_eq!(result.items.len(), 1);
@@ -337,11 +357,65 @@ mod tests {
             date("2026-08-14"),
             QueueOptions::default(),
             Some(&filter),
+            SchedulerConfig::default(),
         )
         .unwrap();
 
         assert!(result.items.is_empty());
         assert_eq!(result.diagnostics.len(), 1);
         assert_eq!(result.diagnostics[0].code, "priority-invalid");
+    }
+
+    #[test]
+    fn uses_supplied_scheduler_settings() {
+        let directory = tempdir().unwrap();
+        fs::write(
+            directory.path().join("card.md"),
+            concat!(
+                "---\ntype: card\npriority: 1\n---\n",
+                "## Front\nQ\n## Back\nA\n",
+                "<!-- HISTORY:BEGIN -->\n",
+                "| Date | Rating |\n",
+                "| --- | --- |\n",
+                "| 2026-08-01 | 3 |\n",
+                "<!-- HISTORY:END -->\n",
+            ),
+        )
+        .unwrap();
+        let options = QueueOptions {
+            include_upcoming: true,
+            ..QueueOptions::default()
+        };
+        let relaxed = build(
+            directory.path(),
+            date("2026-08-14"),
+            options,
+            None,
+            SchedulerConfig {
+                card: super::super::card::CardSchedulerConfig {
+                    desired_retention: 0.5,
+                },
+                ..SchedulerConfig::default()
+            },
+        )
+        .unwrap();
+        let strict = build(
+            directory.path(),
+            date("2026-08-14"),
+            options,
+            None,
+            SchedulerConfig {
+                card: super::super::card::CardSchedulerConfig {
+                    desired_retention: 0.99,
+                },
+                ..SchedulerConfig::default()
+            },
+        )
+        .unwrap();
+
+        assert_ne!(
+            relaxed.items[0].metrics.interval_days,
+            strict.items[0].metrics.interval_days
+        );
     }
 }

@@ -86,7 +86,7 @@ pub fn paths(items: &[QueueItem]) -> String {
 ///
 /// Fields are: rank, type, priority, status, due date, age days, interval
 /// days, score, and path. A missing interval is represented by an empty field.
-pub fn queue_plain(items: &[QueueItem]) -> String {
+pub fn queue_tsv(items: &[QueueItem]) -> String {
     let mut output = String::new();
     for (index, item) in items.iter().enumerate() {
         let interval = item
@@ -108,6 +108,49 @@ pub fn queue_plain(items: &[QueueItem]) -> String {
         ));
     }
     output
+}
+
+/// Render a stable JSON array for downstream programs.
+pub fn queue_json(items: &[QueueItem]) -> String {
+    let values: Vec<_> = items
+        .iter()
+        .enumerate()
+        .map(|(index, item)| {
+            let detail = match &item.details {
+                Details::Card(card) => serde_json::json!({
+                    "kind": "card",
+                    "retrievability": card.retrievability,
+                    "stability": card.stability,
+                    "difficulty": card.difficulty,
+                    "last_rating": card.last_rating,
+                }),
+                Details::Note(note) => serde_json::json!({
+                    "kind": "note",
+                    "pass": note.pass,
+                    "reads_in_pass": note.reads_in_pass,
+                    "recent_exposure": note.recent_exposure,
+                    "resume_line": note.resume_line,
+                }),
+            };
+            serde_json::json!({
+                "rank": index + 1,
+                "type": item.element_type.to_string(),
+                "priority": item.priority,
+                "status": item.metrics.status.to_string(),
+                "last_date": item.metrics.last_date.map(|date| date.to_string()),
+                "due_date": item.metrics.due_date.to_string(),
+                "age_days": item.metrics.age_days,
+                "interval_days": item.metrics.interval_days,
+                "score": item.score,
+                "path": item.path.display().to_string(),
+                "details": detail,
+            })
+        })
+        .collect();
+    format!(
+        "{}\n",
+        serde_json::to_string_pretty(&values).expect("JSON values always serialize")
+    )
 }
 
 fn heading(value: &str, alignment: CellAlignment) -> Cell {
@@ -203,12 +246,22 @@ mod tests {
     }
 
     #[test]
-    fn plain_queue_is_headerless_tsv_with_one_line_per_item() {
+    fn tsv_queue_is_headerless_with_one_line_per_item() {
         assert_eq!(
-            queue_plain(&[item()]),
+            queue_tsv(&[item()]),
             "1\tnote\t1\toverdue\t2024-08-18\t728\t2\t2296.685\t\
              example-vault/study-note.md\n"
         );
+    }
+
+    #[test]
+    fn json_queue_contains_structured_fields() {
+        let output = queue_json(&[item()]);
+        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert_eq!(parsed[0]["rank"], 1);
+        assert_eq!(parsed[0]["type"], "note");
+        assert_eq!(parsed[0]["path"], "example-vault/study-note.md");
+        assert_eq!(parsed[0]["details"]["kind"], "note");
     }
 
     #[test]

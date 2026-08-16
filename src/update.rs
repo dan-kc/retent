@@ -21,23 +21,13 @@ pub fn priority(root: &Path, paths: &[PathBuf], priority: u8) -> Result<usize, S
     })
 }
 
-/// Add tags to every selected valid document.
+/// Add tags to every selected valid document, retaining existing tags.
 ///
-/// When `overwrite` is true, existing tags are discarded. In either mode,
-/// duplicate tags are removed while retaining first-seen order.
-pub fn tags_add(
-    root: &Path,
-    paths: &[PathBuf],
-    tags: &[String],
-    overwrite: bool,
-) -> Result<usize, String> {
+/// Duplicate tags are removed while retaining first-seen order.
+pub fn tags_add(root: &Path, paths: &[PathBuf], tags: &[String]) -> Result<usize, String> {
     let requested = deduplicate(tags.iter().cloned());
     mutate_tags(root, paths, |document| {
-        let mut updated = if overwrite {
-            Vec::new()
-        } else {
-            deduplicate(document.metadata.tags.iter().cloned())
-        };
+        let mut updated = deduplicate(document.metadata.tags.iter().cloned());
         let mut present: HashSet<_> = updated.iter().cloned().collect();
         for tag in &requested {
             if present.insert(tag.clone()) {
@@ -46,6 +36,12 @@ pub fn tags_add(
         }
         updated
     })
+}
+
+/// Replace the complete tag list, removing duplicates in first-seen order.
+pub fn tags_set(root: &Path, paths: &[PathBuf], tags: &[String]) -> Result<usize, String> {
+    let requested = deduplicate(tags.iter().cloned());
+    mutate_tags(root, paths, |_| requested.clone())
 }
 
 /// Rename a tag on every selected valid document.

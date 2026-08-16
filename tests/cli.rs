@@ -16,7 +16,7 @@ fn write_file(root: &Path, name: &str, contents: impl AsRef<[u8]>) -> PathBuf {
 
 fn filtered_paths(root: &Path, filter: &str) -> Vec<u8> {
     let output = cargo_bin_cmd!("retent")
-        .args(["list", "--paths", "--filter", filter, "--root"])
+        .args(["list", "--format", "paths", "--filter", filter, "--vault"])
         .arg(root)
         .output()
         .unwrap();
@@ -27,7 +27,15 @@ fn filtered_paths(root: &Path, filter: &str) -> Vec<u8> {
 fn format_list(root: &Path, paths: &str, field: &str, style: &str) -> assert_cmd::assert::Assert {
     let mut command = cargo_bin_cmd!("retent");
     command
-        .args(["format-list", field, "--style", style, "--root"])
+        .args([
+            "format-list",
+            field,
+            "--style",
+            style,
+            "--files-from",
+            "-",
+            "--vault",
+        ])
         .arg(root)
         .write_stdin(paths)
         .assert()
@@ -91,7 +99,7 @@ fn audits_missing_and_invalid_separately() {
     write_file(directory.path(), "invalid-utf8.md", [0xff]);
 
     cargo_bin_cmd!("retent")
-        .args(["audit", "missing", "--root"])
+        .args(["audit", "missing", "--vault"])
         .arg(directory.path())
         .assert()
         .success()
@@ -102,7 +110,7 @@ fn audits_missing_and_invalid_separately() {
         .stdout(predicate::str::contains("invalid.md").not());
 
     cargo_bin_cmd!("retent")
-        .args(["audit", "invalid", "--root"])
+        .args(["audit", "invalid", "--vault"])
         .arg(directory.path())
         .assert()
         .success()
@@ -134,7 +142,7 @@ fn queue_interleaves_types_and_next_reuses_limit() {
         .stdout(predicate::str::contains(" card "));
 
     cargo_bin_cmd!("retent")
-        .args(["next", "--root"])
+        .args(["next", "--vault"])
         .arg(directory.path())
         .args(["--as-of", "2026-08-14"])
         .assert()
@@ -168,7 +176,7 @@ fn queue_shows_at_most_five_and_list_limit_is_configurable() {
         .stdout(predicate::str::contains("note-6.md").not());
 
     cargo_bin_cmd!("retent")
-        .args(["list", "--paths", "--limit", "2", "--root"])
+        .args(["list", "--format", "paths", "--limit", "2", "--vault"])
         .arg(directory.path())
         .args(["--as-of", "2026-08-14"])
         .assert()
@@ -177,7 +185,7 @@ fn queue_shows_at_most_five_and_list_limit_is_configurable() {
 }
 
 #[test]
-fn queue_prints_valid_rows_but_fails_for_invalid_files() {
+fn queue_preflights_invalid_files_before_printing_rows() {
     let directory = tempdir().unwrap();
     write_file(
         directory.path(),
@@ -195,7 +203,7 @@ fn queue_prints_valid_rows_but_fails_for_invalid_files() {
         .current_dir(directory.path())
         .assert()
         .failure()
-        .stdout(predicate::str::contains("valid.md"))
+        .stdout("")
         .stderr(predicate::str::contains("invalid.md:3 [priority-invalid]"))
         .stderr(predicate::str::contains(
             "1 invalid files skipped; run 'retent audit invalid'",
@@ -203,16 +211,175 @@ fn queue_prints_valid_rows_but_fails_for_invalid_files() {
 }
 
 #[test]
-fn list_type_filters_conflict() {
+fn allow_invalid_explicitly_emits_partial_machine_output() {
+    let directory = tempdir().unwrap();
+    write_file(
+        directory.path(),
+        "valid.md",
+        "---\ntype: note\npriority: 1\n---\n",
+    );
+    write_file(
+        directory.path(),
+        "invalid.md",
+        "---\ntype: note\npriority: 11\n---\n",
+    );
+
     cargo_bin_cmd!("retent")
-        .args(["list", "--notes-only", "--cards-only"])
+        .args(["queue", "--format", "paths", "--allow-invalid", "--vault"])
+        .arg(directory.path())
         .assert()
-        .failure()
-        .stderr(predicate::str::contains("cannot be used with"));
+        .success()
+        .stdout("valid.md\n")
+        .stderr(predicate::str::contains(
+            "continuing because --allow-invalid",
+        ));
 }
 
 #[test]
-fn list_and_next_plain_are_headerless_tsv() {
+fn discovers_toml_from_a_nested_directory_and_cli_clears_its_defaults() {
+    let directory = tempdir().unwrap();
+    let nested = directory.path().join("nested");
+    fs::create_dir(&nested).unwrap();
+    write_file(
+        directory.path(),
+        ".retent.toml",
+        concat!(
+            "version = 1\n",
+            "[queue]\n",
+            "limit = 1\n",
+            "filter = \"tags.any(wanted)\"\n",
+            "type = \"note\"\n",
+            "format = \"paths\"\n",
+        ),
+    );
+    write_file(
+        directory.path(),
+        "wanted.md",
+        "---\ntype: note\npriority: 2\ntags: [wanted]\n---\n",
+    );
+    write_file(
+        directory.path(),
+        "other.md",
+        "---\ntype: card\npriority: 1\ntags: [other]\n---\n## Front\nQ\n## Back\nA\n",
+    );
+
+    cargo_bin_cmd!("retent")
+        .arg("queue")
+        .current_dir(&nested)
+        .assert()
+        .success()
+        .stdout("wanted.md\n");
+
+    let output = cargo_bin_cmd!("retent")
+        .args([
+            "queue",
+            "--no-filter",
+            "--no-limit",
+            "--type",
+            "all",
+            "--format",
+            "json",
+        ])
+        .current_dir(&nested)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json.as_array().unwrap().len(), 2);
+    assert_eq!(json[0]["path"], "other.md");
+    assert_eq!(json[1]["path"], "wanted.md");
+}
+
+#[test]
+fn config_show_reports_effective_values_and_sources() {
+    let directory = tempdir().unwrap();
+    let config = write_file(
+        directory.path(),
+        "custom.toml",
+        "version = 1\n[queue]\nlimit = 2\n",
+    );
+
+    cargo_bin_cmd!("retent")
+        .args(["config", "show", "--config"])
+        .arg(&config)
+        .args(["--card-retention", "0.9"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("queue.limit = 2 (config"))
+        .stdout(predicate::str::contains(
+            "scheduling.card.desired-retention = 0.9 (CLI)",
+        ))
+        .stdout(predicate::str::contains(
+            directory.path().display().to_string(),
+        ));
+
+    cargo_bin_cmd!("retent")
+        .args(["config", "show", "--no-config", "--vault"])
+        .arg(directory.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("config.file = none"))
+        .stdout(predicate::str::contains("queue.limit = 5 (built-in)"))
+        .stdout(predicate::str::contains("vault = ").and(predicate::str::contains("(CLI)")));
+}
+
+#[test]
+fn config_rejects_unknown_keys_versions_and_invalid_values() {
+    let directory = tempdir().unwrap();
+    for (contents, expected) in [
+        ("version = 1\nunknown = true\n", "unknown field"),
+        ("version = 2\n", "unsupported config version 2"),
+        (
+            "version = 1\n[scheduling.card]\ndesired-retention = 0\n",
+            "must be finite and in (0, 1]",
+        ),
+        (
+            "version = 1\n[queue]\nlimit = \"everything\"\n",
+            "limit string must be \"none\"",
+        ),
+    ] {
+        let config = write_file(directory.path(), "invalid.toml", contents);
+        cargo_bin_cmd!("retent")
+            .args(["config", "show", "--config"])
+            .arg(config)
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(expected));
+    }
+}
+
+#[test]
+fn removed_root_flag_is_rejected() {
+    cargo_bin_cmd!("retent")
+        .args(["list", "--root", "."])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("unexpected argument '--root'"));
+}
+
+#[test]
+fn list_type_selects_one_kind() {
+    let directory = tempdir().unwrap();
+    write_file(
+        directory.path(),
+        "note.md",
+        "---\ntype: note\npriority: 1\n---\n",
+    );
+    write_file(
+        directory.path(),
+        "card.md",
+        "---\ntype: card\npriority: 1\n---\n## Front\nQ\n## Back\nA\n",
+    );
+    cargo_bin_cmd!("retent")
+        .args(["list", "--type", "note", "--format", "paths", "--vault"])
+        .arg(directory.path())
+        .assert()
+        .success()
+        .stdout("note.md\n");
+}
+
+#[test]
+fn list_and_next_tsv_are_headerless() {
     let directory = tempdir().unwrap();
     write_file(
         directory.path(),
@@ -223,7 +390,7 @@ fn list_and_next_plain_are_headerless_tsv() {
     let expected = "1\tnote\t1\tnew\t2026-08-14\t0\t\t6.310\tnote.md\n";
 
     cargo_bin_cmd!("retent")
-        .args(["list", "--plain", "--root"])
+        .args(["list", "--format", "tsv", "--vault"])
         .arg(directory.path())
         .args(["--as-of", "2026-08-14"])
         .assert()
@@ -231,7 +398,7 @@ fn list_and_next_plain_are_headerless_tsv() {
         .stdout(expected);
 
     cargo_bin_cmd!("retent")
-        .args(["next", "--plain", "--root"])
+        .args(["next", "--format", "tsv", "--vault"])
         .arg(directory.path())
         .args(["--as-of", "2026-08-14"])
         .assert()
@@ -240,7 +407,7 @@ fn list_and_next_plain_are_headerless_tsv() {
 }
 
 #[test]
-fn position_and_rate_append_replayable_history() {
+fn progress_and_rate_append_replayable_history() {
     let directory = tempdir().unwrap();
     let note = write_file(
         directory.path(),
@@ -254,9 +421,9 @@ fn position_and_rate_append_replayable_history() {
     );
 
     cargo_bin_cmd!("retent")
-        .arg("position")
+        .arg("progress")
         .arg(&note)
-        .args(["5", "--date", "2026-08-14"])
+        .args(["--end-line", "5", "--date", "2026-08-14"])
         .assert()
         .success()
         .stdout(predicate::str::contains(
@@ -297,7 +464,7 @@ fn cli_rejects_invalid_dates_and_ratings_before_editing() {
     assert_eq!(fs::read_to_string(&card).unwrap(), original);
 
     cargo_bin_cmd!("retent")
-        .args(["list", "--as-of", "2026-02-30", "--root"])
+        .args(["list", "--as-of", "2026-02-30", "--vault"])
         .arg(directory.path())
         .assert()
         .failure()
@@ -305,34 +472,38 @@ fn cli_rejects_invalid_dates_and_ratings_before_editing() {
 }
 
 #[test]
-fn queue_rejects_view_options() {
-    for option in [
-        "--all",
-        "--plain",
-        "--paths",
-        "--wrap",
-        "--notes-only",
-        "--cards-only",
-    ] {
-        cargo_bin_cmd!("retent")
-            .args(["queue", option])
-            .assert()
-            .failure()
-            .stderr(predicate::str::contains("unexpected argument"));
-    }
+fn queue_accepts_shared_view_options() {
+    let directory = tempdir().unwrap();
+    write_file(
+        directory.path(),
+        "wanted.md",
+        "---\ntype: note\npriority: 5\ntags: [wanted]\n---\n",
+    );
+    write_file(
+        directory.path(),
+        "other.md",
+        "---\ntype: card\npriority: 5\ntags: [other]\n---\n## Front\nQ\n## Back\nA\n",
+    );
 
-    for (option, value) in [
-        ("--root", "."),
-        ("--as-of", "2026-08-14"),
-        ("--filter", "priority = 5"),
-        ("--limit", "1"),
-    ] {
-        cargo_bin_cmd!("retent")
-            .args(["queue", option, value])
-            .assert()
-            .failure()
-            .stderr(predicate::str::contains("unexpected argument"));
-    }
+    cargo_bin_cmd!("retent")
+        .args([
+            "queue",
+            "--vault",
+            directory.path().to_str().unwrap(),
+            "--as-of",
+            "2026-08-14",
+            "--filter",
+            "tags.any(wanted)",
+            "--type",
+            "note",
+            "--format",
+            "paths",
+            "--limit",
+            "1",
+        ])
+        .assert()
+        .success()
+        .stdout("wanted.md\n");
 }
 
 #[test]
@@ -363,7 +534,7 @@ fn list_shows_the_full_scheduled_table_and_supports_composed_filters() {
     );
 
     cargo_bin_cmd!("retent")
-        .args(["list", "--as-of", "2026-08-14", "--root"])
+        .args(["list", "--as-of", "2026-08-14", "--vault"])
         .arg(directory.path())
         .assert()
         .success()
@@ -381,7 +552,14 @@ fn list_shows_the_full_scheduled_table_and_supports_composed_filters() {
         .stdout(predicate::str::contains("plain.md").not());
 
     cargo_bin_cmd!("retent")
-        .args(["list", "--plain", "--as-of", "2026-08-14", "--root"])
+        .args([
+            "list",
+            "--format",
+            "tsv",
+            "--as-of",
+            "2026-08-14",
+            "--vault",
+        ])
         .arg(directory.path())
         .args([
             "--filter",
@@ -394,12 +572,13 @@ fn list_shows_the_full_scheduled_table_and_supports_composed_filters() {
     cargo_bin_cmd!("retent")
         .args([
             "list",
-            "--paths",
+            "--format",
+            "paths",
             "--as-of",
             "2026-08-14",
             "--filter",
             "tags.exact(bar, foo)",
-            "--root",
+            "--vault",
         ])
         .arg(directory.path())
         .assert()
@@ -409,12 +588,13 @@ fn list_shows_the_full_scheduled_table_and_supports_composed_filters() {
     cargo_bin_cmd!("retent")
         .args([
             "list",
-            "--plain",
+            "--format",
+            "tsv",
             "--as-of",
             "2026-08-14",
             "--filter",
             "tags.exact(bar, foo)",
-            "--root",
+            "--vault",
         ])
         .arg(directory.path())
         .assert()
@@ -439,7 +619,7 @@ fn list_and_next_apply_filters_before_ranking() {
     for command in ["list", "next"] {
         cargo_bin_cmd!("retent")
             .arg(command)
-            .args(["--plain", "--filter", "tags.any(bar)", "--root"])
+            .args(["--format", "tsv", "--filter", "tags.any(bar)", "--vault"])
             .arg(directory.path())
             .args(["--as-of", "2026-08-14"])
             .assert()
@@ -473,7 +653,7 @@ fn filters_do_not_hide_invalid_files() {
     for command in ["list", "next"] {
         cargo_bin_cmd!("retent")
             .arg(command)
-            .args(["--filter", "tags.any(wanted)", "--root"])
+            .args(["--filter", "tags.any(wanted)", "--vault"])
             .arg(directory.path())
             .assert()
             .failure()
@@ -482,18 +662,20 @@ fn filters_do_not_hide_invalid_files() {
 }
 
 #[test]
-fn list_rejects_conflicting_machine_readable_formats() {
+fn non_table_formats_reject_wrap() {
     for arguments in [
-        ["list", "--plain", "--paths"],
-        ["list", "--plain", "--wrap"],
-        ["list", "--paths", "--wrap"],
-        ["next", "--plain", "--wrap"],
+        ["list", "--format", "tsv", "--wrap"],
+        ["list", "--format", "paths", "--wrap"],
+        ["list", "--format", "json", "--wrap"],
+        ["next", "--format", "tsv", "--wrap"],
     ] {
         cargo_bin_cmd!("retent")
             .args(arguments)
             .assert()
             .failure()
-            .stderr(predicate::str::contains("cannot be used with"));
+            .stderr(predicate::str::contains(
+                "can only be used with table output",
+            ));
     }
 }
 
@@ -515,7 +697,7 @@ fn update_priority_only_changes_documents_matching_the_filter() {
     let listed = filtered_paths(directory.path(), "tags.any(wanted)");
 
     cargo_bin_cmd!("retent")
-        .args(["update", "priority", "7", "--files-from", "-", "--root"])
+        .args(["update", "priority", "7", "--files-from", "-", "--vault"])
         .arg(directory.path())
         .write_stdin(listed)
         .assert()
@@ -539,7 +721,7 @@ fn update_priority_preserves_all_other_frontmatter_formatting() {
     );
 
     cargo_bin_cmd!("retent")
-        .args(["update", "priority", "3", "--files-from", "-", "--root"])
+        .args(["update", "priority", "3", "--files-from", "-", "--vault"])
         .arg(directory.path())
         .write_stdin("selected.md\n")
         .assert()
@@ -553,7 +735,7 @@ fn update_priority_preserves_all_other_frontmatter_formatting() {
 }
 
 #[test]
-fn update_tags_add_can_keep_or_overwrite_existing_tags_and_deduplicates() {
+fn update_tags_add_and_set_have_distinct_semantics_and_deduplicate() {
     let keep_directory = tempdir().unwrap();
     let keep = write_file(
         keep_directory.path(),
@@ -570,11 +752,9 @@ fn update_tags_add_can_keep_or_overwrite_existing_tags_and_deduplicates() {
             "shared",
             "new",
             "new",
-            "--existing",
-            "keep",
             "--files-from",
             "-",
-            "--root",
+            "--vault",
         ])
         .arg(keep_directory.path())
         .write_stdin(paths)
@@ -596,15 +776,13 @@ fn update_tags_add_can_keep_or_overwrite_existing_tags_and_deduplicates() {
         .args([
             "update",
             "tags",
-            "add",
+            "set",
             "shared",
             "new",
             "new",
-            "--existing",
-            "overwrite",
             "--files-from",
             "-",
-            "--root",
+            "--vault",
         ])
         .arg(overwrite_directory.path())
         .write_stdin(paths)
@@ -638,7 +816,7 @@ fn update_tags_rename_is_filtered_and_deduplicates_collisions() {
             "new",
             "--files-from",
             "-",
-            "--root",
+            "--vault",
         ])
         .arg(directory.path())
         .write_stdin(paths)
@@ -681,7 +859,7 @@ fn update_tags_remove_only_removes_requested_tags_from_filtered_documents() {
             "absent",
             "--files-from",
             "-",
-            "--root",
+            "--vault",
         ])
         .arg(directory.path())
         .write_stdin(paths)
@@ -715,7 +893,7 @@ fn update_preflights_selected_invalid_files_before_writing_any_changes() {
     let original = fs::read_to_string(&valid).unwrap();
 
     cargo_bin_cmd!("retent")
-        .args(["update", "priority", "7", "--files-from", "-", "--root"])
+        .args(["update", "priority", "7", "--files-from", "-", "--vault"])
         .arg(directory.path())
         .write_stdin("valid.md\ninvalid.md\n")
         .assert()
@@ -743,7 +921,7 @@ fn update_accepts_a_named_file_list_and_ignores_duplicate_paths() {
     cargo_bin_cmd!("retent")
         .args(["update", "priority", "3", "--files-from"])
         .arg(paths)
-        .args(["--root"])
+        .args(["--vault"])
         .arg(directory.path())
         .assert()
         .success()
@@ -767,7 +945,7 @@ fn update_reports_only_changed_files_and_accepts_an_empty_selection() {
 
     for paths in ["selected.md\n", ""] {
         cargo_bin_cmd!("retent")
-            .args(["update", "priority", "3", "--files-from", "-", "--root"])
+            .args(["update", "priority", "3", "--files-from", "-", "--vault"])
             .arg(directory.path())
             .write_stdin(paths)
             .assert()
@@ -788,7 +966,7 @@ fn update_preserves_a_bom_crlf_and_body_content() {
     );
 
     cargo_bin_cmd!("retent")
-        .args(["update", "priority", "3", "--files-from", "-", "--root"])
+        .args(["update", "priority", "3", "--files-from", "-", "--vault"])
         .arg(directory.path())
         .write_stdin("selected.md\n")
         .assert()
@@ -815,7 +993,7 @@ fn update_rejects_selected_paths_outside_root() {
     let original = fs::read_to_string(&outside).unwrap();
 
     cargo_bin_cmd!("retent")
-        .args(["update", "priority", "3", "--files-from", "-", "--root"])
+        .args(["update", "priority", "3", "--files-from", "-", "--vault"])
         .arg(&root)
         .write_stdin("../outside.md\n")
         .assert()
