@@ -5,13 +5,11 @@ description: Example card.
 tags: [learning]
 ---
 
-## Front
+<!-- FRONT:BEGIN -->
 
 Blah blah blah example card.
 
-## Back
-
-Answer to said card
+<!-- FRONT:END -->
 
 <!-- HISTORY:BEGIN -->
 
