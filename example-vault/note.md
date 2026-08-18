@@ -1,11 +1,11 @@
 ---
 type: note
-priority: 10
-description: Example non-study note.
+priority: 8
+description: Example study note.
 tags: [learning]
 ---
 
-An example non-study note blah blah.
+An example study note blah blah.
 
 <!-- HISTORY:BEGIN -->
 

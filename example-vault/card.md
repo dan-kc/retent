@@ -1,6 +1,6 @@
 ---
 type: card
-priority: 5
+desired retention: 85
 description: Example card.
 tags: [learning]
 ---
