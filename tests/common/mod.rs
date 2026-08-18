@@ -5,6 +5,10 @@ use assert_cmd::Command;
 use assert_cmd::cargo::cargo_bin_cmd;
 
 pub fn write_file(root: &Path, relative_path: &str, contents: &str) {
+    write_bytes(root, relative_path, contents);
+}
+
+pub fn write_bytes(root: &Path, relative_path: &str, contents: impl AsRef<[u8]>) {
     let path = root.join(relative_path);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).unwrap();
