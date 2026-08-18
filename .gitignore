@@ -1,5 +1,6 @@
 .direnv
 target/
+/target
 .git
 /result
 collection*
