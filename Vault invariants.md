@@ -92,7 +92,7 @@ priority: 0..=10. When something is marked with priority 0 it is still valid, bu
 
 I want a cli tool to:
 
-- List items. Searches the entire repository and returns a newline separated list of filenames. You can optionally add a flags to display the following:
+- List items. Searches the entire repository and returns a newline separated list of relative paths for each matching entity. You can optionally add a flags to additionally display the following:
   - type
   - Priority
   - Score
