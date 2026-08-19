@@ -58,7 +58,8 @@ impl Frontmatter {
 
         let mapping = match serde_yaml_ng::from_str(&yaml) {
             Ok(Value::Mapping(mapping)) => mapping,
-            Ok(_) | Err(_) => return Self::Invalid,
+            Ok(_) => return Self::Other,
+            Err(_) => return Self::Invalid,
         };
 
         match mapping.get(Value::String("type".to_owned())) {
