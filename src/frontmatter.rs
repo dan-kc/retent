@@ -25,6 +25,7 @@ pub(crate) enum Column {
 pub(crate) enum Frontmatter {
     Note {
         priority: RequiredInteger,
+        body: String,
     },
     Card {
         desired_retention: RequiredInteger,
@@ -50,9 +51,19 @@ enum CardMemory {
     Invalid,
 }
 
+enum NoteScore {
+    Valid(f64),
+    Invalid,
+}
+
 struct CardReview {
     date: Date,
     rating: u32,
+}
+
+struct NoteExposure {
+    date: Date,
+    pass: u64,
 }
 
 impl Column {
@@ -105,6 +116,7 @@ impl Frontmatter {
         match mapping.get(Value::String("type".to_owned())) {
             Some(Value::String(value)) if value == "note" => Self::Note {
                 priority: required_integer(&mapping, "priority", 10),
+                body,
             },
             Some(Value::String(value)) if value == "card" => Self::Card {
                 desired_retention: required_integer(&mapping, "desired retention", 99),
@@ -115,7 +127,7 @@ impl Frontmatter {
     }
 
     pub(crate) fn values(&self, columns: &[Column], today: Option<Date>) -> Vec<String> {
-        let memory = match self {
+        let card_memory = match self {
             Self::Card {
                 desired_retention,
                 body,
@@ -124,33 +136,48 @@ impl Frontmatter {
             }
             _ => None,
         };
+        let note_score = match self {
+            Self::Note { priority, body }
+                if columns.iter().any(|column| matches!(column, Column::Score)) =>
+            {
+                Some(NoteScore::from_body(priority, body, today))
+            }
+            _ => None,
+        };
 
         columns
             .iter()
-            .map(|column| self.value(*column, memory.as_ref()))
+            .map(|column| self.value(*column, card_memory.as_ref(), note_score.as_ref()))
             .collect()
     }
 
-    fn value(&self, column: Column, memory: Option<&CardMemory>) -> String {
+    fn value(
+        &self,
+        column: Column,
+        card_memory: Option<&CardMemory>,
+        note_score: Option<&NoteScore>,
+    ) -> String {
         match (self, column) {
             (Self::Note { .. }, Column::Type) => "note".to_owned(),
             (Self::Card { .. }, Column::Type) => "card".to_owned(),
-            (Self::Note { priority }, Column::Priority) => priority.value(),
+            (Self::Note { priority, .. }, Column::Priority) => priority.value(),
             (
                 Self::Card {
                     desired_retention, ..
                 },
                 Column::DesiredRetention,
             ) => desired_retention.value(),
-            (Self::Card { .. }, Column::PredictedRetention) => predicted_retention_value(memory),
-            (Self::Card { .. }, Column::Difficulty) => difficulty_value(memory),
+            (Self::Card { .. }, Column::PredictedRetention) => {
+                predicted_retention_value(card_memory)
+            }
+            (Self::Card { .. }, Column::Difficulty) => difficulty_value(card_memory),
             (
                 Self::Card {
                     desired_retention, ..
                 },
                 Column::Score,
-            ) => card_score(desired_retention, memory),
-            (Self::Note { .. }, Column::Score) => "-".to_owned(),
+            ) => card_score(desired_retention, card_memory),
+            (Self::Note { .. }, Column::Score) => note_score_value(note_score),
             (Self::Invalid, _) => "?".to_owned(),
             _ => "-".to_owned(),
         }
@@ -197,6 +224,38 @@ impl CardMemory {
     }
 }
 
+impl NoteScore {
+    fn from_body(priority: &RequiredInteger, body: &str, today: Option<Date>) -> Self {
+        let (priority, today) = match (priority, today) {
+            (RequiredInteger::Valid(priority), Some(today)) => (*priority, today),
+            _ => return Self::Invalid,
+        };
+        let exposures = match note_exposures(body, today) {
+            Ok(exposures) => exposures,
+            Err(()) => return Self::Invalid,
+        };
+        let priority_factor = priority as f64 / 10.0;
+        let base_half_life = (11 - priority) as f64;
+        let mut remaining_exposure = 0.0;
+
+        for exposure in exposures {
+            let age = match days_between(exposure.date, today) {
+                Ok(age) => age as f64,
+                Err(()) => return Self::Invalid,
+            };
+            let inverse_pass_factor = (-(exposure.pass as f64)).exp2();
+            remaining_exposure += (-(age / base_half_life * inverse_pass_factor)).exp2();
+        }
+
+        let score = priority_factor / (1.0 + remaining_exposure);
+        if score.is_finite() && (0.0..=1.0).contains(&score) {
+            Self::Valid(score)
+        } else {
+            Self::Invalid
+        }
+    }
+}
+
 fn predicted_retention_value(memory: Option<&CardMemory>) -> String {
     match memory {
         Some(CardMemory::None) => "-".to_owned(),
@@ -216,6 +275,13 @@ fn difficulty_value(memory: Option<&CardMemory>) -> String {
         Some(CardMemory::None) => "-".to_owned(),
         Some(CardMemory::Valid { difficulty, .. }) => format!("{difficulty:.3}"),
         Some(CardMemory::Invalid) | None => "?".to_owned(),
+    }
+}
+
+fn note_score_value(score: Option<&NoteScore>) -> String {
+    match score {
+        Some(NoteScore::Valid(score)) => format!("{score:.3}"),
+        Some(NoteScore::Invalid) | None => "?".to_owned(),
     }
 }
 
@@ -254,6 +320,20 @@ fn card_score(desired_retention: &RequiredInteger, memory: Option<&CardMemory>) 
 }
 
 fn card_reviews(body: &str, today: Date) -> Result<Vec<CardReview>, ()> {
+    match history_block(body)? {
+        Some(lines) => parse_card_review_table(&lines, today),
+        None => Ok(Vec::new()),
+    }
+}
+
+fn note_exposures(body: &str, today: Date) -> Result<Vec<NoteExposure>, ()> {
+    match history_block(body)? {
+        Some(lines) => parse_note_exposure_table(&lines, today),
+        None => Ok(Vec::new()),
+    }
+}
+
+fn history_block(body: &str) -> Result<Option<Vec<&str>>, ()> {
     let mut completed_block = None;
     let mut current_block = None;
 
@@ -283,10 +363,7 @@ fn card_reviews(body: &str, today: Date) -> Result<Vec<CardReview>, ()> {
         return Err(());
     }
 
-    match completed_block {
-        Some(lines) => parse_card_review_table(&lines, today),
-        None => Ok(Vec::new()),
-    }
+    Ok(completed_block)
 }
 
 fn parse_card_review_table(lines: &[&str], today: Date) -> Result<Vec<CardReview>, ()> {
@@ -331,6 +408,54 @@ fn parse_card_review_table(lines: &[&str], today: Date) -> Result<Vec<CardReview
         .collect()
 }
 
+fn parse_note_exposure_table(lines: &[&str], today: Date) -> Result<Vec<NoteExposure>, ()> {
+    let first = lines
+        .iter()
+        .position(|line| !line.trim().is_empty())
+        .ok_or(())?;
+    let last = lines
+        .iter()
+        .rposition(|line| !line.trim().is_empty())
+        .ok_or(())?;
+    let table = &lines[first..=last];
+    if table.len() < 2 || table.iter().any(|line| line.trim().is_empty()) {
+        return Err(());
+    }
+
+    let header = table_cells(table[0]).ok_or(())?;
+    if header != ["Date", "End Line", "Pass"] {
+        return Err(());
+    }
+    let separator = table_cells(table[1]).ok_or(())?;
+    if separator.len() != 3 || !separator.iter().all(is_table_separator) {
+        return Err(());
+    }
+
+    let mut previous_date = None;
+    let mut previous_pass = None;
+    table[2..]
+        .iter()
+        .map(|line| {
+            let cells = table_cells(line).ok_or(())?;
+            if cells.len() != 3 {
+                return Err(());
+            }
+            let date = parse_date(cells[0])?;
+            parse_u64(cells[1])?;
+            let pass = parse_u64(cells[2])?;
+            if date > today
+                || previous_date.is_some_and(|previous| date < previous)
+                || previous_pass.is_some_and(|previous| pass < previous)
+            {
+                return Err(());
+            }
+            previous_date = Some(date);
+            previous_pass = Some(pass);
+            Ok(NoteExposure { date, pass })
+        })
+        .collect()
+}
+
 fn table_cells(line: &str) -> Option<Vec<&str>> {
     let line = line.trim();
     let contents = line.strip_prefix('|')?.strip_suffix('|')?;
@@ -366,6 +491,13 @@ fn parse_rating(value: &str) -> Result<u32, ()> {
         Ok(rating @ 1..=4) => Ok(rating),
         _ => Err(()),
     }
+}
+
+fn parse_u64(value: &str) -> Result<u64, ()> {
+    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(());
+    }
+    value.parse().map_err(|_| ())
 }
 
 fn calculate_card_memory(reviews: &[CardReview], today: Date) -> Result<CardMemory, ()> {
