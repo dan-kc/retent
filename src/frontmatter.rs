@@ -22,25 +22,27 @@ pub(crate) enum Column {
     Score,
 }
 
-pub(crate) enum Frontmatter {
+pub(crate) enum Document {
+    Managed(ManagedDocument),
+    Unmanaged,
+    Invalid(Vec<ValidationIssue>),
+}
+
+pub(crate) enum ManagedDocument {
     Note {
-        priority: RequiredInteger,
-        body: String,
+        priority: u64,
+        score: f64,
     },
     Card {
-        desired_retention: RequiredInteger,
-        body: String,
+        desired_retention: u64,
+        memory: CardMemory,
+        score: f32,
     },
-    Other,
-    Invalid,
 }
 
-pub(crate) enum RequiredInteger {
-    Valid(u64),
-    Invalid,
-}
+pub(crate) struct ValidationIssue(String);
 
-enum CardMemory {
+pub(crate) enum CardMemory {
     None,
     Valid {
         predicted_retention: f32,
@@ -48,12 +50,6 @@ enum CardMemory {
         stability: f32,
         elapsed_days: u32,
     },
-    Invalid,
-}
-
-enum NoteScore {
-    Valid(f64),
-    Invalid,
 }
 
 struct CardReview {
@@ -66,30 +62,32 @@ struct NoteExposure {
     pass: u64,
 }
 
-impl Column {
-    fn needs_card_memory(self) -> bool {
-        matches!(self, Self::PredictedRetention | Self::Difficulty)
-    }
-
-    pub(crate) fn needs_today(self) -> bool {
-        self.needs_card_memory() || matches!(self, Self::Score)
-    }
-}
-
-impl Frontmatter {
-    pub(crate) fn read(path: &Path) -> Self {
-        let source = match fs::read_to_string(path) {
-            Ok(source) => source,
-            Err(_) => return Self::Invalid,
+impl Document {
+    pub(crate) fn read(path: &Path, today: Date) -> Self {
+        let bytes = match fs::read(path) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                return Self::Invalid(vec![ValidationIssue(format!(
+                    "cannot read file: {error}"
+                ))]);
+            }
         };
-        Self::parse(&source)
+        let source = match String::from_utf8(bytes) {
+            Ok(source) => source,
+            Err(_) => {
+                return Self::Invalid(vec![ValidationIssue(
+                    "file is not valid UTF-8".to_owned(),
+                )]);
+            }
+        };
+        Self::parse(&source, today)
     }
 
-    fn parse(source: &str) -> Self {
+    fn parse(source: &str, today: Date) -> Self {
         let source = source.strip_prefix('\u{feff}').unwrap_or(source);
         let mut lines = source.lines();
         if lines.next() != Some("---") {
-            return Self::Other;
+            return Self::Unmanaged;
         }
 
         let mut yaml = String::new();
@@ -103,205 +101,255 @@ impl Frontmatter {
             yaml.push('\n');
         }
         if !closed {
-            return Self::Invalid;
+            return Self::Unmanaged;
         }
 
         let mapping = match serde_yaml_ng::from_str(&yaml) {
             Ok(Value::Mapping(mapping)) => mapping,
-            Ok(_) => return Self::Other,
-            Err(_) => return Self::Invalid,
+            Ok(_) | Err(_) => return Self::Unmanaged,
         };
         let body = lines.collect::<Vec<_>>().join("\n");
 
         match mapping.get(Value::String("type".to_owned())) {
-            Some(Value::String(value)) if value == "note" => Self::Note {
-                priority: required_integer(&mapping, "priority", 10),
-                body,
-            },
-            Some(Value::String(value)) if value == "card" => Self::Card {
-                desired_retention: required_integer(&mapping, "desired retention", 99),
-                body,
-            },
-            _ => Self::Other,
+            Some(Value::String(value)) if value == "note" => {
+                validate_note(&mapping, &body, today)
+            }
+            Some(Value::String(value)) if value == "card" => {
+                validate_card(&mapping, &body, today)
+            }
+            _ => Self::Unmanaged,
         }
     }
 
-    pub(crate) fn values(&self, columns: &[Column], today: Option<Date>) -> Vec<String> {
-        let card_memory = match self {
-            Self::Card {
-                desired_retention,
-                body,
-            } if needs_card_memory(columns, desired_retention) => {
-                Some(CardMemory::from_body(body, today))
+    pub(crate) fn values(&self, columns: &[Column]) -> Option<Vec<String>> {
+        match self {
+            Self::Managed(document) => Some(document.values(columns)),
+            Self::Unmanaged => Some(columns.iter().map(|_| "-".to_owned()).collect()),
+            Self::Invalid(issues) => {
+                debug_assert!(issues.iter().all(|issue| !issue.0.is_empty()));
+                None
             }
-            _ => None,
-        };
-        let note_score = match self {
-            Self::Note { priority, body }
-                if columns.iter().any(|column| matches!(column, Column::Score)) =>
-            {
-                Some(NoteScore::from_body(priority, body, today))
-            }
-            _ => None,
-        };
+        }
+    }
+}
 
+impl ManagedDocument {
+    fn values(&self, columns: &[Column]) -> Vec<String> {
         columns
             .iter()
-            .map(|column| self.value(*column, card_memory.as_ref(), note_score.as_ref()))
+            .map(|column| self.value(*column))
             .collect()
     }
 
-    fn value(
-        &self,
-        column: Column,
-        card_memory: Option<&CardMemory>,
-        note_score: Option<&NoteScore>,
-    ) -> String {
+    fn value(&self, column: Column) -> String {
         match (self, column) {
             (Self::Note { .. }, Column::Type) => "note".to_owned(),
             (Self::Card { .. }, Column::Type) => "card".to_owned(),
-            (Self::Note { priority, .. }, Column::Priority) => priority.value(),
+            (Self::Note { priority, .. }, Column::Priority) => priority.to_string(),
             (
                 Self::Card {
                     desired_retention, ..
                 },
                 Column::DesiredRetention,
-            ) => desired_retention.value(),
-            (Self::Card { .. }, Column::PredictedRetention) => {
-                predicted_retention_value(card_memory)
+            ) => desired_retention.to_string(),
+            (Self::Card { memory, .. }, Column::PredictedRetention) => {
+                predicted_retention_value(memory)
             }
-            (Self::Card { .. }, Column::Difficulty) => difficulty_value(card_memory),
-            (
-                Self::Card {
-                    desired_retention, ..
-                },
-                Column::Score,
-            ) => card_score(desired_retention, card_memory),
-            (Self::Note { .. }, Column::Score) => note_score_value(note_score),
-            (Self::Invalid, _) => "?".to_owned(),
+            (Self::Card { memory, .. }, Column::Difficulty) => difficulty_value(memory),
+            (Self::Note { score, .. }, Column::Score) => format!("{score:.3}"),
+            (Self::Card { score, .. }, Column::Score) => format!("{score:.3}"),
             _ => "-".to_owned(),
         }
     }
 }
 
-fn needs_card_memory(columns: &[Column], desired_retention: &RequiredInteger) -> bool {
-    columns.iter().any(|column| {
-        column.needs_card_memory()
-            || matches!(
-                (column, desired_retention),
-                (Column::Score, RequiredInteger::Valid(_))
-            )
-    })
-}
-
-impl RequiredInteger {
-    fn value(&self) -> String {
-        match self {
-            Self::Valid(value) => value.to_string(),
-            Self::Invalid => "?".to_owned(),
+fn validate_note(mapping: &Mapping, body: &str, today: Date) -> Document {
+    let mut issues = Vec::new();
+    let priority = match required_integer(mapping, "priority", 10) {
+        Ok(priority) => Some(priority),
+        Err(issue) => {
+            issues.push(issue);
+            None
         }
+    };
+    let exposures = match note_exposures(body, today) {
+        Ok(exposures) => Some(exposures),
+        Err(()) => {
+            issues.push(ValidationIssue("invalid note history".to_owned()));
+            None
+        }
+    };
+
+    if !issues.is_empty() {
+        return Document::Invalid(issues);
+    }
+
+    match (priority, exposures) {
+        (Some(priority), Some(exposures)) => match calculate_note_score(priority, &exposures, today)
+        {
+            Ok(score) => Document::Managed(ManagedDocument::Note { priority, score }),
+            Err(()) => Document::Invalid(vec![ValidationIssue(
+                "note score could not be calculated".to_owned(),
+            )]),
+        },
+        _ => Document::Invalid(vec![ValidationIssue(
+            "note validation did not complete".to_owned(),
+        )]),
     }
 }
 
-impl CardMemory {
-    fn from_body(body: &str, today: Option<Date>) -> Self {
-        let today = match today {
-            Some(today) => today,
-            None => return Self::Invalid,
-        };
-        let reviews = match card_reviews(body, today) {
-            Ok(reviews) => reviews,
-            Err(()) => return Self::Invalid,
-        };
-        if reviews.is_empty() {
-            return Self::None;
+fn validate_card(mapping: &Mapping, body: &str, today: Date) -> Document {
+    let mut issues = Vec::new();
+    let desired_retention = match required_integer(mapping, "desired retention", 99) {
+        Ok(desired_retention) => Some(desired_retention),
+        Err(issue) => {
+            issues.push(issue);
+            None
         }
-
-        match calculate_card_memory(&reviews, today) {
-            Ok(memory) => memory,
-            Err(()) => Self::Invalid,
-        }
+    };
+    if let Err(issue) = validate_front_block(body) {
+        issues.push(issue);
     }
-}
+    let reviews = match card_reviews(body, today) {
+        Ok(reviews) => Some(reviews),
+        Err(()) => {
+            issues.push(ValidationIssue("invalid card history".to_owned()));
+            None
+        }
+    };
 
-impl NoteScore {
-    fn from_body(priority: &RequiredInteger, body: &str, today: Option<Date>) -> Self {
-        let (priority, today) = match (priority, today) {
-            (RequiredInteger::Valid(priority), Some(today)) => (*priority, today),
-            _ => return Self::Invalid,
-        };
-        let exposures = match note_exposures(body, today) {
-            Ok(exposures) => exposures,
-            Err(()) => return Self::Invalid,
-        };
-        let priority_factor = priority as f64 / 10.0;
-        let base_half_life = (11 - priority) as f64;
-        let mut remaining_exposure = 0.0;
+    if !issues.is_empty() {
+        return Document::Invalid(issues);
+    }
 
-        for exposure in exposures {
-            let age = match days_between(exposure.date, today) {
-                Ok(age) => age as f64,
-                Err(()) => return Self::Invalid,
+    match (desired_retention, reviews) {
+        (Some(desired_retention), Some(reviews)) => {
+            let memory = if reviews.is_empty() {
+                CardMemory::None
+            } else {
+                match calculate_card_memory(&reviews, today) {
+                    Ok(memory) => memory,
+                    Err(()) => {
+                        return Document::Invalid(vec![ValidationIssue(
+                            "card history could not be replayed".to_owned(),
+                        )]);
+                    }
+                }
             };
-            let inverse_pass_factor = (-(exposure.pass as f64)).exp2();
-            remaining_exposure += (-(age / base_half_life * inverse_pass_factor)).exp2();
+            match calculate_card_score(desired_retention, &memory) {
+                Ok(score) => Document::Managed(ManagedDocument::Card {
+                    desired_retention,
+                    memory,
+                    score,
+                }),
+                Err(()) => Document::Invalid(vec![ValidationIssue(
+                    "card score could not be calculated".to_owned(),
+                )]),
+            }
         }
-
-        let score = priority_factor / (1.0 + remaining_exposure);
-        if score.is_finite() && (0.0..=1.0).contains(&score) {
-            Self::Valid(score)
-        } else {
-            Self::Invalid
-        }
+        _ => Document::Invalid(vec![ValidationIssue(
+            "card validation did not complete".to_owned(),
+        )]),
     }
 }
 
-fn predicted_retention_value(memory: Option<&CardMemory>) -> String {
+fn validate_front_block(body: &str) -> Result<(), ValidationIssue> {
+    let mut completed = false;
+    let mut open = false;
+
+    for line in body.lines() {
+        match line.trim() {
+            "<!-- FRONT:BEGIN -->" => {
+                if open {
+                    return Err(ValidationIssue("card front block is nested".to_owned()));
+                }
+                if completed {
+                    return Err(ValidationIssue(
+                        "card has multiple front blocks".to_owned(),
+                    ));
+                }
+                open = true;
+            }
+            "<!-- FRONT:END -->" => {
+                if !open {
+                    return Err(ValidationIssue(
+                        "card front block ends before it begins".to_owned(),
+                    ));
+                }
+                open = false;
+                completed = true;
+            }
+            _ => {}
+        }
+    }
+
+    if open {
+        Err(ValidationIssue("card front block is unclosed".to_owned()))
+    } else if completed {
+        Ok(())
+    } else {
+        Err(ValidationIssue("card front block is missing".to_owned()))
+    }
+}
+
+fn calculate_note_score(
+    priority: u64,
+    exposures: &[NoteExposure],
+    today: Date,
+) -> Result<f64, ()> {
+    let priority_factor = priority as f64 / 10.0;
+    let base_half_life = (11 - priority) as f64;
+    let mut remaining_exposure = 0.0;
+
+    for exposure in exposures {
+        let age = days_between(exposure.date, today)? as f64;
+        let inverse_pass_factor = (-(exposure.pass as f64)).exp2();
+        remaining_exposure += (-(age / base_half_life * inverse_pass_factor)).exp2();
+    }
+
+    let score = priority_factor / (1.0 + remaining_exposure);
+    if score.is_finite() && (0.0..=1.0).contains(&score) {
+        Ok(score)
+    } else {
+        Err(())
+    }
+}
+
+fn predicted_retention_value(memory: &CardMemory) -> String {
     match memory {
-        Some(CardMemory::None) => "-".to_owned(),
-        Some(CardMemory::Valid {
+        CardMemory::None => "-".to_owned(),
+        CardMemory::Valid {
             predicted_retention,
             ..
-        }) => {
+        } => {
             let percentage = (predicted_retention * 100.0).round().min(99.0);
             format!("{percentage:.0}")
         }
-        Some(CardMemory::Invalid) | None => "?".to_owned(),
     }
 }
 
-fn difficulty_value(memory: Option<&CardMemory>) -> String {
+fn difficulty_value(memory: &CardMemory) -> String {
     match memory {
-        Some(CardMemory::None) => "-".to_owned(),
-        Some(CardMemory::Valid { difficulty, .. }) => format!("{difficulty:.3}"),
-        Some(CardMemory::Invalid) | None => "?".to_owned(),
+        CardMemory::None => "-".to_owned(),
+        CardMemory::Valid { difficulty, .. } => format!("{difficulty:.3}"),
     }
 }
 
-fn note_score_value(score: Option<&NoteScore>) -> String {
-    match score {
-        Some(NoteScore::Valid(score)) => format!("{score:.3}"),
-        Some(NoteScore::Invalid) | None => "?".to_owned(),
-    }
-}
-
-fn card_score(desired_retention: &RequiredInteger, memory: Option<&CardMemory>) -> String {
+fn calculate_card_score(desired_retention: u64, memory: &CardMemory) -> Result<f32, ()> {
     match (desired_retention, memory) {
-        (RequiredInteger::Invalid, _) => "?".to_owned(),
-        (RequiredInteger::Valid(_), Some(CardMemory::Invalid) | None) => "?".to_owned(),
-        (RequiredInteger::Valid(0), Some(_)) => "0.000".to_owned(),
-        (RequiredInteger::Valid(_), Some(CardMemory::None)) => "0.500".to_owned(),
+        (0, _) => Ok(0.0),
+        (_, CardMemory::None) => Ok(0.5),
         (
-            RequiredInteger::Valid(desired_retention),
-            Some(CardMemory::Valid {
+            desired_retention,
+            CardMemory::Valid {
                 stability,
                 elapsed_days,
                 ..
-            }),
+            },
         ) => {
             let target_interval = FSRS::default().next_interval(
                 Some(*stability),
-                *desired_retention as f32 / 100.0,
+                desired_retention as f32 / 100.0,
                 3,
             );
             let elapsed_days = *elapsed_days as f32;
@@ -311,9 +359,9 @@ fn card_score(desired_retention: &RequiredInteger, memory: Option<&CardMemory>) 
                 && score.is_finite()
                 && (0.0..=1.0).contains(&score)
             {
-                format!("{score:.3}")
+                Ok(score)
             } else {
-                "?".to_owned()
+                Err(())
             }
         }
     }
@@ -547,12 +595,18 @@ fn days_between(start: Date, end: Date) -> Result<u32, ()> {
     u32::try_from((end - start).get_days()).map_err(|_| ())
 }
 
-fn required_integer(mapping: &Mapping, key: &str, maximum: u64) -> RequiredInteger {
-    match mapping
-        .get(Value::String(key.to_owned()))
-        .and_then(Value::as_u64)
-    {
-        Some(value) if value <= maximum => RequiredInteger::Valid(value),
-        _ => RequiredInteger::Invalid,
+fn required_integer(
+    mapping: &Mapping,
+    key: &str,
+    maximum: u64,
+) -> Result<u64, ValidationIssue> {
+    let Some(value) = mapping.get(Value::String(key.to_owned())) else {
+        return Err(ValidationIssue(format!("{key} is missing")));
+    };
+    match value.as_u64() {
+        Some(value) if value <= maximum => Ok(value),
+        _ => Err(ValidationIssue(format!(
+            "{key} must be an unquoted integer from 0 to {maximum}"
+        ))),
     }
 }

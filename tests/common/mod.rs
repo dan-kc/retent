@@ -22,6 +22,12 @@ pub fn list_command(root: &Path) -> Command {
     command
 }
 
+pub fn audit_command(root: &Path) -> Command {
+    let mut command = cargo_bin_cmd!("retent");
+    command.arg("audit").current_dir(root);
+    command
+}
+
 pub fn columns_command(root: &Path, columns: &[&str]) -> Command {
     let mut command = list_command(root);
     for column in columns {

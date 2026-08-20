@@ -2,7 +2,7 @@ use std::io::{self, Write};
 
 use clap::{Args, Parser, Subcommand};
 
-use crate::frontmatter::{Column, Frontmatter};
+use crate::frontmatter::{Column, Document};
 
 /// Markdown-native incremental learning.
 #[derive(Debug, Parser)]
@@ -46,15 +46,15 @@ fn list(args: ListArgs) -> Result<Outcome, String> {
     let root = std::env::current_dir()
         .map_err(|error| format!("cannot determine the current directory: {error}"))?;
     let paths = crate::discover::markdown_files(&root)?;
-    let today = args
-        .columns
-        .iter()
-        .any(|column| column.needs_today())
-        .then(|| jiff::Zoned::now().date());
+    let today = jiff::Zoned::now().date();
     let mut output = String::new();
-    let mut invalid = false;
 
     for path in paths {
+        let document = Document::read(&path, today);
+        let Some(values) = document.values(&args.columns) else {
+            continue;
+        };
+
         if args.absolute_path {
             output.push_str(&path.display().to_string());
         } else {
@@ -69,13 +69,9 @@ fn list(args: ListArgs) -> Result<Outcome, String> {
             output.push_str(&relative.display().to_string());
         }
 
-        if !args.columns.is_empty() {
-            let frontmatter = Frontmatter::read(&path);
-            for value in frontmatter.values(&args.columns, today) {
-                invalid |= value == "?";
-                output.push(' ');
-                output.push_str(&value);
-            }
+        for value in values {
+            output.push(' ');
+            output.push_str(&value);
         }
         output.push('\n');
     }
@@ -85,9 +81,5 @@ fn list(args: ListArgs) -> Result<Outcome, String> {
         .write_all(output.as_bytes())
         .map_err(|error| format!("cannot write output: {error}"))?;
 
-    if invalid {
-        Ok(Outcome::Invalid)
-    } else {
-        Ok(Outcome::Success)
-    }
+    Ok(Outcome::Success)
 }
