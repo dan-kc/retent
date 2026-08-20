@@ -55,6 +55,8 @@ fn list_help_displays_supported_columns() {
     assert!(stdout.contains("type"));
     assert!(stdout.contains("priority"));
     assert!(stdout.contains("desired retention"));
+    assert!(stdout.contains("predicted retention"));
+    assert!(stdout.contains("difficulty"));
 }
 
 #[test]

@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 clap = { version = "4.5.41", features = ["derive"] }
 fsrs = "=6.6.1"
+jiff = "0.2.35"
 serde_yaml_ng = "0.10.0"
 walkdir = "2.5.0"
 
