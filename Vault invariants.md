@@ -49,6 +49,18 @@ The algorithm for ranking which reading material to show, should closely mimmick
 
 Do not encorporate any randomness when calculating the score. It must be deterministic. There may be times when the same note is popped up again even after just completing it and that is fine. It is up to downstream implementators to encorporate randomness such that you don't read the same thing again and again.
 
+For priority `p`, let `P = p / 10`. For every history row `i`, let `age_i` be the whole number of days since its date, and define its exposure half-life and remaining exposure as:
+
+`H_i = (11 - p) * 2^pass_i`
+
+`E_i = 2^(-age_i / H_i)`
+
+The note score is:
+
+`score = P / (1 + sum(E_i))`
+
+A note without history has score `P`. A priority of 0 always has score 0. Calculations use full precision and scores are reported with three decimal places.
+
 ### card
 
 A card is a flashcard I wish to revise for using the ANKI FSRS algorithm.
@@ -61,7 +73,7 @@ desired retention: 85
 tags: [System Design]
 ```
 
-The desired retention field is 0..=100. A card must have a 'front' block like so:
+The desired retention field is 0..=99. A desired retention of 0 removes the card from rankings. A card must have a 'front' block like so:
 
 <!-- FRONT:BEGIN -->
 

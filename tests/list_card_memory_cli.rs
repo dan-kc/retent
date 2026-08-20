@@ -68,10 +68,10 @@ fn derives_memory_columns_from_each_initial_rating() {
         .assert()
         .success()
         .stdout(
-            "./again.md 1.000 0.601\n\
-         ./easy.md 1.000 0.000\n\
-         ./good.md 1.000 0.124\n\
-         ./hard.md 1.000 0.457\n",
+            "./again.md 99 0.601\n\
+         ./easy.md 99 0.000\n\
+         ./good.md 99 0.124\n\
+         ./hard.md 99 0.457\n",
         )
         .stderr("");
 }
@@ -90,24 +90,26 @@ fn replays_the_entire_history_and_applies_current_decay() {
     columns_command(directory.path(), &["predicted retention", "difficulty"])
         .assert()
         .success()
-        .stdout("./card.md 0.971 0.417\n")
+        .stdout("./card.md 97 0.417\n")
         .stderr("");
 }
 
 #[test]
 fn accepts_same_day_reviews_in_table_order() {
     let directory = tempdir().unwrap();
-    let today = date_from_today(0);
+    let review_date = date_from_today(-3);
     write_file(
         directory.path(),
         "card.md",
-        &card_with_history(&format!("| {today} | 1      |\n| {today} | 4      |")),
+        &card_with_history(&format!(
+            "| {review_date} | 1      |\n| {review_date} | 4      |"
+        )),
     );
 
     columns_command(directory.path(), &["predicted retention", "difficulty"])
         .assert()
         .success()
-        .stdout("./card.md 1.000 0.467\n")
+        .stdout("./card.md 73 0.467\n")
         .stderr("");
 }
 

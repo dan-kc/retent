@@ -18,6 +18,8 @@ pub(crate) enum Column {
     PredictedRetention,
     #[value(name = "difficulty")]
     Difficulty,
+    #[value(name = "score")]
+    Score,
 }
 
 pub(crate) enum Frontmatter {
@@ -42,6 +44,8 @@ enum CardMemory {
     Valid {
         predicted_retention: f32,
         difficulty: f32,
+        stability: f32,
+        elapsed_days: u32,
     },
     Invalid,
 }
@@ -52,8 +56,12 @@ struct CardReview {
 }
 
 impl Column {
-    pub(crate) fn needs_card_memory(self) -> bool {
+    fn needs_card_memory(self) -> bool {
         matches!(self, Self::PredictedRetention | Self::Difficulty)
+    }
+
+    pub(crate) fn needs_today(self) -> bool {
+        self.needs_card_memory() || matches!(self, Self::Score)
     }
 }
 
@@ -99,7 +107,7 @@ impl Frontmatter {
                 priority: required_integer(&mapping, "priority", 10),
             },
             Some(Value::String(value)) if value == "card" => Self::Card {
-                desired_retention: required_integer(&mapping, "desired retention", 100),
+                desired_retention: required_integer(&mapping, "desired retention", 99),
                 body,
             },
             _ => Self::Other,
@@ -108,7 +116,10 @@ impl Frontmatter {
 
     pub(crate) fn values(&self, columns: &[Column], today: Option<Date>) -> Vec<String> {
         let memory = match self {
-            Self::Card { body, .. } if columns.iter().any(|column| column.needs_card_memory()) => {
+            Self::Card {
+                desired_retention,
+                body,
+            } if needs_card_memory(columns, desired_retention) => {
                 Some(CardMemory::from_body(body, today))
             }
             _ => None,
@@ -131,16 +142,29 @@ impl Frontmatter {
                 },
                 Column::DesiredRetention,
             ) => desired_retention.value(),
-            (Self::Card { .. }, Column::PredictedRetention) => {
-                memory_value(memory, |predicted_retention, _| predicted_retention)
-            }
-            (Self::Card { .. }, Column::Difficulty) => {
-                memory_value(memory, |_, difficulty| difficulty)
-            }
+            (Self::Card { .. }, Column::PredictedRetention) => predicted_retention_value(memory),
+            (Self::Card { .. }, Column::Difficulty) => difficulty_value(memory),
+            (
+                Self::Card {
+                    desired_retention, ..
+                },
+                Column::Score,
+            ) => card_score(desired_retention, memory),
+            (Self::Note { .. }, Column::Score) => "-".to_owned(),
             (Self::Invalid, _) => "?".to_owned(),
             _ => "-".to_owned(),
         }
     }
+}
+
+fn needs_card_memory(columns: &[Column], desired_retention: &RequiredInteger) -> bool {
+    columns.iter().any(|column| {
+        column.needs_card_memory()
+            || matches!(
+                (column, desired_retention),
+                (Column::Score, RequiredInteger::Valid(1..=99))
+            )
+    })
 }
 
 impl RequiredInteger {
@@ -167,23 +191,65 @@ impl CardMemory {
         }
 
         match calculate_card_memory(&reviews, today) {
-            Ok((predicted_retention, difficulty)) => Self::Valid {
-                predicted_retention,
-                difficulty,
-            },
+            Ok(memory) => memory,
             Err(()) => Self::Invalid,
         }
     }
 }
 
-fn memory_value(memory: Option<&CardMemory>, select: impl FnOnce(f32, f32) -> f32) -> String {
+fn predicted_retention_value(memory: Option<&CardMemory>) -> String {
     match memory {
         Some(CardMemory::None) => "-".to_owned(),
         Some(CardMemory::Valid {
             predicted_retention,
-            difficulty,
-        }) => format!("{:.3}", select(*predicted_retention, *difficulty)),
+            ..
+        }) => {
+            let percentage = (predicted_retention * 100.0).round().min(99.0);
+            format!("{percentage:.0}")
+        }
         Some(CardMemory::Invalid) | None => "?".to_owned(),
+    }
+}
+
+fn difficulty_value(memory: Option<&CardMemory>) -> String {
+    match memory {
+        Some(CardMemory::None) => "-".to_owned(),
+        Some(CardMemory::Valid { difficulty, .. }) => format!("{difficulty:.3}"),
+        Some(CardMemory::Invalid) | None => "?".to_owned(),
+    }
+}
+
+fn card_score(desired_retention: &RequiredInteger, memory: Option<&CardMemory>) -> String {
+    match (desired_retention, memory) {
+        (RequiredInteger::Invalid, _) => "?".to_owned(),
+        (RequiredInteger::Valid(0), _) => "0.000".to_owned(),
+        (RequiredInteger::Valid(_), Some(CardMemory::None)) => "0.500".to_owned(),
+        (
+            RequiredInteger::Valid(desired_retention),
+            Some(CardMemory::Valid {
+                stability,
+                elapsed_days,
+                ..
+            }),
+        ) => {
+            let target_interval = FSRS::default().next_interval(
+                Some(*stability),
+                *desired_retention as f32 / 100.0,
+                3,
+            );
+            let elapsed_days = *elapsed_days as f32;
+            let score = elapsed_days / (elapsed_days + target_interval);
+            if target_interval.is_finite()
+                && target_interval > 0.0
+                && score.is_finite()
+                && (0.0..=1.0).contains(&score)
+            {
+                format!("{score:.3}")
+            } else {
+                "?".to_owned()
+            }
+        }
+        (RequiredInteger::Valid(_), Some(CardMemory::Invalid) | None) => "?".to_owned(),
     }
 }
 
@@ -302,7 +368,7 @@ fn parse_rating(value: &str) -> Result<u32, ()> {
     }
 }
 
-fn calculate_card_memory(reviews: &[CardReview], today: Date) -> Result<(f32, f32), ()> {
+fn calculate_card_memory(reviews: &[CardReview], today: Date) -> Result<CardMemory, ()> {
     let mut previous_date = None;
     let mut fsrs_reviews = Vec::with_capacity(reviews.len());
     for review in reviews {
@@ -326,8 +392,9 @@ fn calculate_card_memory(reviews: &[CardReview], today: Date) -> Result<(f32, f3
         )
         .map_err(|_| ())?;
     let last_date = previous_date.ok_or(())?;
-    let elapsed = days_between(last_date, today)? as f32;
-    let predicted_retention = current_retrievability(state, elapsed, DEFAULT_PARAMETERS[20]);
+    let elapsed_days = days_between(last_date, today)?;
+    let predicted_retention =
+        current_retrievability(state, elapsed_days as f32, DEFAULT_PARAMETERS[20]);
     let difficulty = (state.difficulty - 1.0) / 9.0;
     if !predicted_retention.is_finite()
         || !(0.0..=1.0).contains(&predicted_retention)
@@ -336,7 +403,12 @@ fn calculate_card_memory(reviews: &[CardReview], today: Date) -> Result<(f32, f3
     {
         return Err(());
     }
-    Ok((predicted_retention, difficulty))
+    Ok(CardMemory::Valid {
+        predicted_retention,
+        difficulty,
+        stability: state.stability,
+        elapsed_days,
+    })
 }
 
 fn days_between(start: Date, end: Date) -> Result<u32, ()> {

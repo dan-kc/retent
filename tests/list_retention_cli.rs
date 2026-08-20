@@ -14,7 +14,7 @@ fn accepts_desired_retention_boundaries() {
         indoc! {r#"
             ---
             type: card
-            desired retention: 100
+            desired retention: 99
             ---
         "#},
     );
@@ -32,7 +32,28 @@ fn accepts_desired_retention_boundaries() {
     columns_command(directory.path(), &["desired retention"])
         .assert()
         .success()
-        .stdout("./maximum.md 100\n./minimum.md 0\n")
+        .stdout("./maximum.md 99\n./minimum.md 0\n")
+        .stderr("");
+}
+
+#[test]
+fn rejects_full_desired_retention() {
+    let directory = tempdir().unwrap();
+    write_file(
+        directory.path(),
+        "card.md",
+        indoc! {r#"
+            ---
+            type: card
+            desired retention: 100
+            ---
+        "#},
+    );
+
+    columns_command(directory.path(), &["desired retention"])
+        .assert()
+        .code(1)
+        .stdout("./card.md ?\n")
         .stderr("");
 }
 

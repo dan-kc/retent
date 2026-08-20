@@ -49,7 +49,7 @@ fn list(args: ListArgs) -> Result<Outcome, String> {
     let today = args
         .columns
         .iter()
-        .any(|column| column.needs_card_memory())
+        .any(|column| column.needs_today())
         .then(|| jiff::Zoned::now().date());
     let mut output = String::new();
     let mut invalid = false;

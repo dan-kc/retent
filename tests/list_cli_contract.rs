@@ -57,6 +57,7 @@ fn list_help_displays_supported_columns() {
     assert!(stdout.contains("desired retention"));
     assert!(stdout.contains("predicted retention"));
     assert!(stdout.contains("difficulty"));
+    assert!(stdout.contains("score"));
 }
 
 #[test]
