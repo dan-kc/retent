@@ -6,7 +6,7 @@ use tempfile::tempdir;
 use common::{columns_command, list_command, write_bytes, write_file};
 
 #[test]
-fn malformed_yaml_renders_question_marks_for_every_selected_column() {
+fn malformed_yaml_is_unmanaged_for_every_selected_column() {
     let directory = tempdir().unwrap();
     write_file(
         directory.path(),
@@ -20,13 +20,13 @@ fn malformed_yaml_renders_question_marks_for_every_selected_column() {
 
     columns_command(directory.path(), &["type", "priority", "desired retention"])
         .assert()
-        .code(1)
-        .stdout("./malformed.md ? ? ?\n")
+        .success()
+        .stdout("./malformed.md - - -\n")
         .stderr("");
 }
 
 #[test]
-fn unclosed_frontmatter_renders_a_question_mark() {
+fn unclosed_frontmatter_is_unmanaged() {
     let directory = tempdir().unwrap();
     write_file(
         directory.path(),
@@ -40,8 +40,8 @@ fn unclosed_frontmatter_renders_a_question_mark() {
 
     columns_command(directory.path(), &["type"])
         .assert()
-        .code(1)
-        .stdout("./unclosed.md ?\n")
+        .success()
+        .stdout("./unclosed.md -\n")
         .stderr("");
 }
 
@@ -67,26 +67,26 @@ fn non_mapping_frontmatter_renders_a_dash() {
 }
 
 #[test]
-fn invalid_utf8_renders_a_question_mark() {
+fn column_listing_skips_invalid_utf8() {
     let directory = tempdir().unwrap();
     write_bytes(directory.path(), "invalid.md", [0xff]);
 
     columns_command(directory.path(), &["type"])
         .assert()
-        .code(1)
-        .stdout("./invalid.md ?\n")
+        .success()
+        .stdout("")
         .stderr("");
 }
 
 #[test]
-fn path_only_listing_does_not_read_invalid_utf8() {
+fn path_only_listing_skips_invalid_utf8() {
     let directory = tempdir().unwrap();
     write_bytes(directory.path(), "invalid.md", [0xff]);
 
     list_command(directory.path())
         .assert()
         .success()
-        .stdout("./invalid.md\n")
+        .stdout("")
         .stderr("");
 }
 
@@ -115,7 +115,7 @@ fn continues_listing_after_malformed_frontmatter() {
 
     columns_command(directory.path(), &["type"])
         .assert()
-        .code(1)
-        .stdout("./malformed.md ?\n./valid.md note\n")
+        .success()
+        .stdout("./malformed.md -\n./valid.md note\n")
         .stderr("");
 }

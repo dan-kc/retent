@@ -115,7 +115,7 @@ fn invalid_entries_are_sorted_by_relative_path() {
         .code(1)
         .stdout(
             "./nested/alpha.md\tfile is not valid UTF-8\n\
-             ./zeta.md\tpriority must be an unquoted integer from 0 to 10\n",
+             ./zeta.md\tpriority must be from 0 to 10\n",
         )
         .stderr("");
 }

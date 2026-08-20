@@ -21,7 +21,7 @@ fn history_block(rows: &str) -> String {
 
 fn card_with_history(desired_retention: u8, rows: &str) -> String {
     format!(
-        "---\ntype: card\ndesired retention: {desired_retention}\n---\n\n{}\n",
+        "---\ntype: card\ndesired retention: {desired_retention}\n---\n\n<!-- FRONT:BEGIN -->\n<!-- FRONT:END -->\n\n{}\n",
         history_block(rows)
     )
 }
@@ -37,12 +37,12 @@ fn new_cards_have_a_neutral_score() {
     write_file(
         directory.path(),
         "no-history.md",
-        "---\ntype: card\ndesired retention: 85\n---\n",
+        "---\ntype: card\ndesired retention: 85\n---\n\n<!-- FRONT:BEGIN -->\n<!-- FRONT:END -->\n",
     );
     write_file(
         directory.path(),
         "not-ranked.md",
-        "---\ntype: card\ndesired retention: 0\n---\n",
+        "---\ntype: card\ndesired retention: 0\n---\n\n<!-- FRONT:BEGIN -->\n<!-- FRONT:END -->\n",
     );
     write_file(directory.path(), "other.md", "No frontmatter.\n");
 
@@ -142,13 +142,17 @@ fn invalid_desired_retention_makes_the_score_invalid() {
     write_file(
         directory.path(),
         "full.md",
-        "---\ntype: card\ndesired retention: 100\n---\n",
+        "---\ntype: card\ndesired retention: 100\n---\n\n<!-- FRONT:BEGIN -->\n<!-- FRONT:END -->\n",
     );
-    write_file(directory.path(), "missing.md", "---\ntype: card\n---\n");
+    write_file(
+        directory.path(),
+        "missing.md",
+        "---\ntype: card\n---\n\n<!-- FRONT:BEGIN -->\n<!-- FRONT:END -->\n",
+    );
     columns_command(directory.path(), &["score"])
         .assert()
-        .code(1)
-        .stdout("./full.md ?\n./missing.md ?\n")
+        .success()
+        .stdout("")
         .stderr("");
 }
 
@@ -163,8 +167,8 @@ fn zero_retention_card_score_requires_valid_history() {
 
     columns_command(directory.path(), &["score"])
         .assert()
-        .code(1)
-        .stdout("./card.md ?\n")
+        .success()
+        .stdout("")
         .stderr("");
 }
 
@@ -180,8 +184,8 @@ fn malformed_history_makes_the_score_invalid() {
 
     columns_command(directory.path(), &["score"])
         .assert()
-        .code(1)
-        .stdout("./card.md ?\n")
+        .success()
+        .stdout("")
         .stderr("");
 }
 
@@ -207,8 +211,8 @@ fn cards_reject_note_history_schema() {
 
     columns_command(directory.path(), &["score"])
         .assert()
-        .code(1)
-        .stdout("./card.md ?\n")
+        .success()
+        .stdout("")
         .stderr("");
 }
 
@@ -236,7 +240,7 @@ fn cards_reject_noncontiguous_history_rows() {
 
     columns_command(directory.path(), &["score"])
         .assert()
-        .code(1)
-        .stdout("./card.md ?\n")
+        .success()
+        .stdout("")
         .stderr("");
 }

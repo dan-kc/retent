@@ -21,7 +21,7 @@ fn history_block(rows: &str) -> String {
 
 fn card_with_history(rows: &str) -> String {
     format!(
-        "---\ntype: card\ndesired retention: 85\n---\n\n{}\n",
+        "---\ntype: card\ndesired retention: 85\n---\n\n<!-- FRONT:BEGIN -->\n<!-- FRONT:END -->\n\n{}\n",
         history_block(rows)
     )
 }
@@ -37,7 +37,7 @@ fn renders_dashes_without_a_card_memory_state() {
     write_file(
         directory.path(),
         "card-no-history.md",
-        "---\ntype: card\ndesired retention: 85\n---\n",
+        "---\ntype: card\ndesired retention: 85\n---\n\n<!-- FRONT:BEGIN -->\n<!-- FRONT:END -->\n",
     );
     write_file(
         directory.path(),
@@ -138,15 +138,10 @@ fn rejects_malformed_history_rows() {
     for (name, rows) in &cases {
         write_file(directory.path(), name, &card_with_history(rows));
     }
-    let expected = cases
-        .iter()
-        .map(|(name, _)| format!("./{name} ? ?\n"))
-        .collect::<String>();
-
     columns_command(directory.path(), &["predicted retention", "difficulty"])
         .assert()
-        .code(1)
-        .stdout(expected)
+        .success()
+        .stdout("")
         .stderr("");
 }
 
@@ -158,13 +153,15 @@ fn rejects_multiple_history_blocks() {
     write_file(
         directory.path(),
         "card.md",
-        &format!("---\ntype: card\ndesired retention: 85\n---\n\n{block}\n\n{block}\n"),
+        &format!(
+            "---\ntype: card\ndesired retention: 85\n---\n\n<!-- FRONT:BEGIN -->\n<!-- FRONT:END -->\n\n{block}\n\n{block}\n"
+        ),
     );
 
     columns_command(directory.path(), &["predicted retention", "difficulty"])
         .assert()
-        .code(1)
-        .stdout("./card.md ? ?\n")
+        .success()
+        .stdout("")
         .stderr("");
 }
 
@@ -177,6 +174,8 @@ fn rejects_an_unclosed_history_block() {
         "card.md",
         &format!(
             "---\ntype: card\ndesired retention: 85\n---\n\n\
+             <!-- FRONT:BEGIN -->\n\
+             <!-- FRONT:END -->\n\n\
              <!-- HISTORY:BEGIN -->\n\n\
              | Date       | Rating |\n\
              | ---------- | -----: |\n\
@@ -186,13 +185,13 @@ fn rejects_an_unclosed_history_block() {
 
     columns_command(directory.path(), &["predicted retention", "difficulty"])
         .assert()
-        .code(1)
-        .stdout("./card.md ? ?\n")
+        .success()
+        .stdout("")
         .stderr("");
 }
 
 #[test]
-fn unselected_malformed_history_does_not_affect_exit_status() {
+fn unselected_malformed_history_is_still_skipped() {
     let directory = tempdir().unwrap();
     write_file(
         directory.path(),
@@ -203,6 +202,6 @@ fn unselected_malformed_history_does_not_affect_exit_status() {
     columns_command(directory.path(), &["type"])
         .assert()
         .success()
-        .stdout("./card.md card\n")
+        .stdout("")
         .stderr("");
 }

@@ -16,6 +16,9 @@ fn accepts_desired_retention_boundaries() {
             type: card
             desired retention: 99
             ---
+
+            <!-- FRONT:BEGIN -->
+            <!-- FRONT:END -->
         "#},
     );
     write_file(
@@ -26,6 +29,9 @@ fn accepts_desired_retention_boundaries() {
             type: card
             desired retention: 0
             ---
+
+            <!-- FRONT:BEGIN -->
+            <!-- FRONT:END -->
         "#},
     );
 
@@ -47,13 +53,16 @@ fn rejects_full_desired_retention() {
             type: card
             desired retention: 100
             ---
+
+            <!-- FRONT:BEGIN -->
+            <!-- FRONT:END -->
         "#},
     );
 
     columns_command(directory.path(), &["desired retention"])
         .assert()
-        .code(1)
-        .stdout("./card.md ?\n")
+        .success()
+        .stdout("")
         .stderr("");
 }
 
@@ -67,13 +76,16 @@ fn rejects_missing_desired_retention() {
             ---
             type: card
             ---
+
+            <!-- FRONT:BEGIN -->
+            <!-- FRONT:END -->
         "#},
     );
 
     columns_command(directory.path(), &["desired retention"])
         .assert()
-        .code(1)
-        .stdout("./card.md ?\n")
+        .success()
+        .stdout("")
         .stderr("");
 }
 
@@ -88,13 +100,16 @@ fn rejects_desired_retention_below_minimum() {
             type: card
             desired retention: -1
             ---
+
+            <!-- FRONT:BEGIN -->
+            <!-- FRONT:END -->
         "#},
     );
 
     columns_command(directory.path(), &["desired retention"])
         .assert()
-        .code(1)
-        .stdout("./card.md ?\n")
+        .success()
+        .stdout("")
         .stderr("");
 }
 
@@ -109,13 +124,16 @@ fn rejects_desired_retention_above_maximum() {
             type: card
             desired retention: 101
             ---
+
+            <!-- FRONT:BEGIN -->
+            <!-- FRONT:END -->
         "#},
     );
 
     columns_command(directory.path(), &["desired retention"])
         .assert()
-        .code(1)
-        .stdout("./card.md ?\n")
+        .success()
+        .stdout("")
         .stderr("");
 }
 
@@ -130,13 +148,16 @@ fn rejects_quoted_desired_retention() {
             type: card
             desired retention: "85"
             ---
+
+            <!-- FRONT:BEGIN -->
+            <!-- FRONT:END -->
         "#},
     );
 
     columns_command(directory.path(), &["desired retention"])
         .assert()
-        .code(1)
-        .stdout("./card.md ?\n")
+        .success()
+        .stdout("")
         .stderr("");
 }
 
@@ -151,13 +172,16 @@ fn rejects_floating_point_desired_retention() {
             type: card
             desired retention: 85.0
             ---
+
+            <!-- FRONT:BEGIN -->
+            <!-- FRONT:END -->
         "#},
     );
 
     columns_command(directory.path(), &["desired retention"])
         .assert()
-        .code(1)
-        .stdout("./card.md ?\n")
+        .success()
+        .stdout("")
         .stderr("");
 }
 

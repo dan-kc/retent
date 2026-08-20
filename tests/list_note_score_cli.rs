@@ -214,15 +214,10 @@ fn rejects_malformed_note_history_rows() {
     for (name, rows) in &cases {
         write_file(directory.path(), name, &note_with_history(10, rows));
     }
-    let expected = cases
-        .iter()
-        .map(|(name, _)| format!("./{name} ?\n"))
-        .collect::<String>();
-
     columns_command(directory.path(), &["score"])
         .assert()
-        .code(1)
-        .stdout(expected)
+        .success()
+        .stdout("")
         .stderr("");
 }
 
@@ -250,8 +245,8 @@ fn rejects_malformed_note_history_blocks() {
 
     columns_command(directory.path(), &["score"])
         .assert()
-        .code(1)
-        .stdout("./multiple.md ?\n./unclosed.md ?\n")
+        .success()
+        .stdout("")
         .stderr("");
 }
 
@@ -276,8 +271,8 @@ fn rejects_nested_history_blocks() {
 
     columns_command(directory.path(), &["score"])
         .assert()
-        .code(1)
-        .stdout("./note.md ?\n")
+        .success()
+        .stdout("")
         .stderr("");
 }
 
@@ -300,8 +295,8 @@ fn notes_reject_card_history_schema() {
 
     columns_command(directory.path(), &["score"])
         .assert()
-        .code(1)
-        .stdout("./note.md ?\n")
+        .success()
+        .stdout("")
         .stderr("");
 }
 
@@ -321,8 +316,8 @@ fn notes_reject_noncontiguous_history_rows() {
 
     columns_command(directory.path(), &["score"])
         .assert()
-        .code(1)
-        .stdout("./note.md ?\n")
+        .success()
+        .stdout("")
         .stderr("");
 }
 
@@ -338,8 +333,8 @@ fn invalid_priority_makes_the_note_score_invalid() {
 
     columns_command(directory.path(), &["score"])
         .assert()
-        .code(1)
-        .stdout("./above.md ?\n./missing.md ?\n")
+        .success()
+        .stdout("")
         .stderr("");
 }
 
@@ -354,13 +349,13 @@ fn zero_priority_note_score_requires_valid_history() {
 
     columns_command(directory.path(), &["score"])
         .assert()
-        .code(1)
-        .stdout("./note.md ?\n")
+        .success()
+        .stdout("")
         .stderr("");
 }
 
 #[test]
-fn unselected_malformed_note_history_does_not_affect_exit_status() {
+fn unselected_malformed_note_history_is_still_skipped() {
     let directory = tempdir().unwrap();
     write_file(
         directory.path(),
@@ -371,6 +366,6 @@ fn unselected_malformed_note_history_does_not_affect_exit_status() {
     columns_command(directory.path(), &["priority"])
         .assert()
         .success()
-        .stdout("./note.md 8\n")
+        .stdout("")
         .stderr("");
 }

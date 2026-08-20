@@ -67,17 +67,13 @@ impl Document {
         let bytes = match fs::read(path) {
             Ok(bytes) => bytes,
             Err(error) => {
-                return Self::Invalid(vec![ValidationIssue(format!(
-                    "cannot read file: {error}"
-                ))]);
+                return Self::Invalid(vec![ValidationIssue(format!("cannot read file: {error}"))]);
             }
         };
         let source = match String::from_utf8(bytes) {
             Ok(source) => source,
             Err(_) => {
-                return Self::Invalid(vec![ValidationIssue(
-                    "file is not valid UTF-8".to_owned(),
-                )]);
+                return Self::Invalid(vec![ValidationIssue("file is not valid UTF-8".to_owned())]);
             }
         };
         Self::parse(&source, today)
@@ -111,12 +107,8 @@ impl Document {
         let body = lines.collect::<Vec<_>>().join("\n");
 
         match mapping.get(Value::String("type".to_owned())) {
-            Some(Value::String(value)) if value == "note" => {
-                validate_note(&mapping, &body, today)
-            }
-            Some(Value::String(value)) if value == "card" => {
-                validate_card(&mapping, &body, today)
-            }
+            Some(Value::String(value)) if value == "note" => validate_note(&mapping, &body, today),
+            Some(Value::String(value)) if value == "card" => validate_card(&mapping, &body, today),
             _ => Self::Unmanaged,
         }
     }
@@ -131,14 +123,24 @@ impl Document {
             }
         }
     }
+
+    pub(crate) fn issues(&self) -> Option<&[ValidationIssue]> {
+        match self {
+            Self::Invalid(issues) => Some(issues),
+            Self::Managed(_) | Self::Unmanaged => None,
+        }
+    }
+}
+
+impl ValidationIssue {
+    pub(crate) fn message(&self) -> &str {
+        &self.0
+    }
 }
 
 impl ManagedDocument {
     fn values(&self, columns: &[Column]) -> Vec<String> {
-        columns
-            .iter()
-            .map(|column| self.value(*column))
-            .collect()
+        columns.iter().map(|column| self.value(*column)).collect()
     }
 
     fn value(&self, column: Column) -> String {
@@ -174,8 +176,8 @@ fn validate_note(mapping: &Mapping, body: &str, today: Date) -> Document {
     };
     let exposures = match note_exposures(body, today) {
         Ok(exposures) => Some(exposures),
-        Err(()) => {
-            issues.push(ValidationIssue("invalid note history".to_owned()));
+        Err(issue) => {
+            issues.push(issue);
             None
         }
     };
@@ -185,13 +187,14 @@ fn validate_note(mapping: &Mapping, body: &str, today: Date) -> Document {
     }
 
     match (priority, exposures) {
-        (Some(priority), Some(exposures)) => match calculate_note_score(priority, &exposures, today)
-        {
-            Ok(score) => Document::Managed(ManagedDocument::Note { priority, score }),
-            Err(()) => Document::Invalid(vec![ValidationIssue(
-                "note score could not be calculated".to_owned(),
-            )]),
-        },
+        (Some(priority), Some(exposures)) => {
+            match calculate_note_score(priority, &exposures, today) {
+                Ok(score) => Document::Managed(ManagedDocument::Note { priority, score }),
+                Err(()) => Document::Invalid(vec![ValidationIssue(
+                    "note score could not be calculated".to_owned(),
+                )]),
+            }
+        }
         _ => Document::Invalid(vec![ValidationIssue(
             "note validation did not complete".to_owned(),
         )]),
@@ -212,8 +215,8 @@ fn validate_card(mapping: &Mapping, body: &str, today: Date) -> Document {
     }
     let reviews = match card_reviews(body, today) {
         Ok(reviews) => Some(reviews),
-        Err(()) => {
-            issues.push(ValidationIssue("invalid card history".to_owned()));
+        Err(issue) => {
+            issues.push(issue);
             None
         }
     };
@@ -264,9 +267,7 @@ fn validate_front_block(body: &str) -> Result<(), ValidationIssue> {
                     return Err(ValidationIssue("card front block is nested".to_owned()));
                 }
                 if completed {
-                    return Err(ValidationIssue(
-                        "card has multiple front blocks".to_owned(),
-                    ));
+                    return Err(ValidationIssue("card has multiple front blocks".to_owned()));
                 }
                 open = true;
             }
@@ -292,11 +293,7 @@ fn validate_front_block(body: &str) -> Result<(), ValidationIssue> {
     }
 }
 
-fn calculate_note_score(
-    priority: u64,
-    exposures: &[NoteExposure],
-    today: Date,
-) -> Result<f64, ()> {
+fn calculate_note_score(priority: u64, exposures: &[NoteExposure], today: Date) -> Result<f64, ()> {
     let priority_factor = priority as f64 / 10.0;
     let base_half_life = (11 - priority) as f64;
     let mut remaining_exposure = 0.0;
@@ -367,36 +364,45 @@ fn calculate_card_score(desired_retention: u64, memory: &CardMemory) -> Result<f
     }
 }
 
-fn card_reviews(body: &str, today: Date) -> Result<Vec<CardReview>, ()> {
+fn card_reviews(body: &str, today: Date) -> Result<Vec<CardReview>, ValidationIssue> {
     match history_block(body)? {
         Some(lines) => parse_card_review_table(&lines, today),
         None => Ok(Vec::new()),
     }
 }
 
-fn note_exposures(body: &str, today: Date) -> Result<Vec<NoteExposure>, ()> {
+fn note_exposures(body: &str, today: Date) -> Result<Vec<NoteExposure>, ValidationIssue> {
     match history_block(body)? {
         Some(lines) => parse_note_exposure_table(&lines, today),
         None => Ok(Vec::new()),
     }
 }
 
-fn history_block(body: &str) -> Result<Option<Vec<&str>>, ()> {
+fn history_block(body: &str) -> Result<Option<Vec<&str>>, ValidationIssue> {
     let mut completed_block = None;
     let mut current_block = None;
 
     for line in body.lines() {
         match line.trim() {
             "<!-- HISTORY:BEGIN -->" => {
-                if current_block.is_some() || completed_block.is_some() {
-                    return Err(());
+                if current_block.is_some() {
+                    return Err(ValidationIssue("history block is nested".to_owned()));
+                }
+                if completed_block.is_some() {
+                    return Err(ValidationIssue(
+                        "document has multiple history blocks".to_owned(),
+                    ));
                 }
                 current_block = Some(Vec::new());
             }
             "<!-- HISTORY:END -->" => {
-                let block = current_block.take().ok_or(())?;
+                let block = current_block.take().ok_or_else(|| {
+                    ValidationIssue("history block ends before it begins".to_owned())
+                })?;
                 if completed_block.replace(block).is_some() {
-                    return Err(());
+                    return Err(ValidationIssue(
+                        "document has multiple history blocks".to_owned(),
+                    ));
                 }
             }
             _ => {
@@ -408,94 +414,154 @@ fn history_block(body: &str) -> Result<Option<Vec<&str>>, ()> {
     }
 
     if current_block.is_some() {
-        return Err(());
+        return Err(ValidationIssue("history block is unclosed".to_owned()));
     }
 
     Ok(completed_block)
 }
 
-fn parse_card_review_table(lines: &[&str], today: Date) -> Result<Vec<CardReview>, ()> {
+fn parse_card_review_table(
+    lines: &[&str],
+    today: Date,
+) -> Result<Vec<CardReview>, ValidationIssue> {
     let first = lines
         .iter()
         .position(|line| !line.trim().is_empty())
-        .ok_or(())?;
+        .ok_or_else(|| ValidationIssue("card history table is missing".to_owned()))?;
     let last = lines
         .iter()
         .rposition(|line| !line.trim().is_empty())
-        .ok_or(())?;
+        .ok_or_else(|| ValidationIssue("card history table is missing".to_owned()))?;
     let table = &lines[first..=last];
-    if table.len() < 2 || table.iter().any(|line| line.trim().is_empty()) {
-        return Err(());
+    if table.iter().any(|line| line.trim().is_empty()) {
+        return Err(ValidationIssue(
+            "card history rows must be contiguous".to_owned(),
+        ));
     }
 
-    let header = table_cells(table[0]).ok_or(())?;
+    let header = table_cells(table[0]).unwrap_or_default();
     if header != ["Date", "Rating"] {
-        return Err(());
+        return Err(ValidationIssue(
+            "card history header must be Date | Rating".to_owned(),
+        ));
     }
-    let separator = table_cells(table[1]).ok_or(())?;
+    let separator = table
+        .get(1)
+        .and_then(|line| table_cells(line))
+        .unwrap_or_default();
     if separator.len() != 2 || !separator.iter().all(is_table_separator) {
-        return Err(());
+        return Err(ValidationIssue(
+            "card history separator is invalid".to_owned(),
+        ));
     }
 
     let mut previous_date = None;
     table[2..]
         .iter()
-        .map(|line| {
-            let cells = table_cells(line).ok_or(())?;
+        .enumerate()
+        .map(|(index, line)| {
+            let row = index + 1;
+            let cells = table_cells(line).unwrap_or_default();
             if cells.len() != 2 {
-                return Err(());
+                return Err(ValidationIssue(format!(
+                    "card history row {row} must contain Date and Rating"
+                )));
             }
-            let date = parse_date(cells[0])?;
-            let rating = parse_rating(cells[1])?;
-            if date > today || previous_date.is_some_and(|previous| date < previous) {
-                return Err(());
+            let date = parse_history_date(cells[0], "card", row)?;
+            if date > today {
+                return Err(ValidationIssue(format!(
+                    "card history row {row} date must not be after today"
+                )));
             }
+            if previous_date.is_some_and(|previous| date < previous) {
+                return Err(ValidationIssue(
+                    "card history dates must be non-decreasing".to_owned(),
+                ));
+            }
+            let rating = parse_rating(cells[1]).map_err(|()| {
+                ValidationIssue(format!(
+                    "card history row {row} Rating must be an integer from 1 to 4"
+                ))
+            })?;
             previous_date = Some(date);
             Ok(CardReview { date, rating })
         })
         .collect()
 }
 
-fn parse_note_exposure_table(lines: &[&str], today: Date) -> Result<Vec<NoteExposure>, ()> {
+fn parse_note_exposure_table(
+    lines: &[&str],
+    today: Date,
+) -> Result<Vec<NoteExposure>, ValidationIssue> {
     let first = lines
         .iter()
         .position(|line| !line.trim().is_empty())
-        .ok_or(())?;
+        .ok_or_else(|| ValidationIssue("note history table is missing".to_owned()))?;
     let last = lines
         .iter()
         .rposition(|line| !line.trim().is_empty())
-        .ok_or(())?;
+        .ok_or_else(|| ValidationIssue("note history table is missing".to_owned()))?;
     let table = &lines[first..=last];
-    if table.len() < 2 || table.iter().any(|line| line.trim().is_empty()) {
-        return Err(());
+    if table.iter().any(|line| line.trim().is_empty()) {
+        return Err(ValidationIssue(
+            "note history rows must be contiguous".to_owned(),
+        ));
     }
 
-    let header = table_cells(table[0]).ok_or(())?;
+    let header = table_cells(table[0]).unwrap_or_default();
     if header != ["Date", "End Line", "Pass"] {
-        return Err(());
+        return Err(ValidationIssue(
+            "note history header must be Date | End Line | Pass".to_owned(),
+        ));
     }
-    let separator = table_cells(table[1]).ok_or(())?;
+    let separator = table
+        .get(1)
+        .and_then(|line| table_cells(line))
+        .unwrap_or_default();
     if separator.len() != 3 || !separator.iter().all(is_table_separator) {
-        return Err(());
+        return Err(ValidationIssue(
+            "note history separator is invalid".to_owned(),
+        ));
     }
 
     let mut previous_date = None;
     let mut previous_pass = None;
     table[2..]
         .iter()
-        .map(|line| {
-            let cells = table_cells(line).ok_or(())?;
+        .enumerate()
+        .map(|(index, line)| {
+            let row = index + 1;
+            let cells = table_cells(line).unwrap_or_default();
             if cells.len() != 3 {
-                return Err(());
+                return Err(ValidationIssue(format!(
+                    "note history row {row} must contain Date, End Line, and Pass"
+                )));
             }
-            let date = parse_date(cells[0])?;
-            parse_u64(cells[1])?;
-            let pass = parse_u64(cells[2])?;
-            if date > today
-                || previous_date.is_some_and(|previous| date < previous)
-                || previous_pass.is_some_and(|previous| pass < previous)
-            {
-                return Err(());
+            let date = parse_history_date(cells[0], "note", row)?;
+            if date > today {
+                return Err(ValidationIssue(format!(
+                    "note history row {row} date must not be after today"
+                )));
+            }
+            if previous_date.is_some_and(|previous| date < previous) {
+                return Err(ValidationIssue(
+                    "note history dates must be non-decreasing".to_owned(),
+                ));
+            }
+            parse_u64(cells[1]).map_err(|()| {
+                ValidationIssue(format!(
+                    "note history row {row} End Line must be a non-negative integer"
+                ))
+            })?;
+            let pass = parse_u64(cells[2]).map_err(|()| {
+                ValidationIssue(format!(
+                    "note history row {row} Pass must be a non-negative integer"
+                ))
+            })?;
+            if previous_pass.is_some_and(|previous| pass < previous) {
+                return Err(ValidationIssue(
+                    "note history passes must be non-decreasing".to_owned(),
+                ));
             }
             previous_date = Some(date);
             previous_pass = Some(pass);
@@ -516,7 +582,11 @@ fn is_table_separator(cell: &&str) -> bool {
     cell.len() >= 3 && cell.bytes().all(|byte| byte == b'-')
 }
 
-fn parse_date(value: &str) -> Result<Date, ()> {
+fn parse_history_date(
+    value: &str,
+    document_type: &str,
+    row: usize,
+) -> Result<Date, ValidationIssue> {
     let bytes = value.as_bytes();
     if bytes.len() != 10
         || bytes[4] != b'-'
@@ -526,9 +596,15 @@ fn parse_date(value: &str) -> Result<Date, ()> {
             .enumerate()
             .any(|(index, byte)| index != 4 && index != 7 && !byte.is_ascii_digit())
     {
-        return Err(());
+        return Err(ValidationIssue(format!(
+            "{document_type} history row {row} date must use YYYY-MM-DD"
+        )));
     }
-    value.parse().map_err(|_| ())
+    value.parse().map_err(|_| {
+        ValidationIssue(format!(
+            "{document_type} history row {row} date is not a valid calendar date"
+        ))
+    })
 }
 
 fn parse_rating(value: &str) -> Result<u32, ()> {
@@ -595,18 +671,25 @@ fn days_between(start: Date, end: Date) -> Result<u32, ()> {
     u32::try_from((end - start).get_days()).map_err(|_| ())
 }
 
-fn required_integer(
-    mapping: &Mapping,
-    key: &str,
-    maximum: u64,
-) -> Result<u64, ValidationIssue> {
+fn required_integer(mapping: &Mapping, key: &str, maximum: u64) -> Result<u64, ValidationIssue> {
     let Some(value) = mapping.get(Value::String(key.to_owned())) else {
         return Err(ValidationIssue(format!("{key} is missing")));
     };
-    match value.as_u64() {
-        Some(value) if value <= maximum => Ok(value),
+    match value {
+        Value::Number(number) => match number.as_u64() {
+            Some(value) if value <= maximum => Ok(value),
+            Some(_) => Err(ValidationIssue(format!(
+                "{key} must be from 0 to {maximum}"
+            ))),
+            None if number.as_i64().is_some() => Err(ValidationIssue(format!(
+                "{key} must be from 0 to {maximum}"
+            ))),
+            None => Err(ValidationIssue(format!(
+                "{key} must be an unquoted integer"
+            ))),
+        },
         _ => Err(ValidationIssue(format!(
-            "{key} must be an unquoted integer from 0 to {maximum}"
+            "{key} must be an unquoted integer"
         ))),
     }
 }

@@ -16,6 +16,9 @@ fn renders_recognized_types() {
             type: card
             desired retention: 85
             ---
+
+            <!-- FRONT:BEGIN -->
+            <!-- FRONT:END -->
         "#},
     );
     write_file(

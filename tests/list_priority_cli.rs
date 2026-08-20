@@ -51,8 +51,8 @@ fn rejects_missing_priority() {
 
     columns_command(directory.path(), &["priority"])
         .assert()
-        .code(1)
-        .stdout("./note.md ?\n")
+        .success()
+        .stdout("")
         .stderr("");
 }
 
@@ -72,8 +72,8 @@ fn rejects_priority_below_minimum() {
 
     columns_command(directory.path(), &["priority"])
         .assert()
-        .code(1)
-        .stdout("./note.md ?\n")
+        .success()
+        .stdout("")
         .stderr("");
 }
 
@@ -93,8 +93,8 @@ fn rejects_priority_above_maximum() {
 
     columns_command(directory.path(), &["priority"])
         .assert()
-        .code(1)
-        .stdout("./note.md ?\n")
+        .success()
+        .stdout("")
         .stderr("");
 }
 
@@ -114,8 +114,8 @@ fn rejects_quoted_priority() {
 
     columns_command(directory.path(), &["priority"])
         .assert()
-        .code(1)
-        .stdout("./note.md ?\n")
+        .success()
+        .stdout("")
         .stderr("");
 }
 
@@ -135,8 +135,8 @@ fn rejects_floating_point_priority() {
 
     columns_command(directory.path(), &["priority"])
         .assert()
-        .code(1)
-        .stdout("./note.md ?\n")
+        .success()
+        .stdout("")
         .stderr("");
 }
 
@@ -152,6 +152,9 @@ fn card_priority_always_renders_a_dash() {
             priority: 400
             desired retention: 85
             ---
+
+            <!-- FRONT:BEGIN -->
+            <!-- FRONT:END -->
         "#},
     );
 

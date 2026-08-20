@@ -5,9 +5,31 @@ This is the normative vault format and scheduling specification.
 ## General
 
 - Managed documents are Markdown files with YAML frontmatter `type: note` or `type: card`.
+- A Markdown file is unmanaged unless its frontmatter parses as a YAML mapping with one of those types. This includes missing, unclosed, malformed, and non-mapping frontmatter.
+- Managed documents are validated completely before use, independently of requested list columns.
+- An unreadable Markdown file or one that is not valid UTF-8 is an invalid entry even when its managed status cannot be determined.
 - Dates are valid `YYYY-MM-DD` local calendar dates, no later than today.
 - Scores are deterministic, range from 0 to 1, and rank larger values first. Calculations retain full precision until output.
 - Queue, filtering, and rotation policies belong to downstream tools.
+
+### Commands
+
+`list` discovers Markdown files recursively, excludes `.git` directories and symlinks, and sorts paths lexically.
+
+- Valid managed documents and unmanaged Markdown files are listed. Invalid entries are skipped without changing the successful exit status.
+- Every managed document is fully validated even when no columns, or unrelated columns, are selected.
+- Unmanaged files output `-` for every selected column.
+- `--absolute-path` replaces the default `./`-prefixed relative path.
+
+`audit` applies the same discovery and validation rules.
+
+- Valid and unmanaged files produce no output.
+- Each invalid entry produces one stdout row: `<path>\t<reason>; <reason>`.
+- Independently detectable reasons are combined in field, front-block, then history order as applicable.
+- Findings are sorted by path. `--absolute-path` replaces the default `./`-prefixed relative path.
+- No findings exits successfully. Any finding exits with status 1. Operational failures are written to stderr and also exit with status 1.
+
+Paths and reasons escape backslashes and output-breaking control characters. Paths that are not valid Unicode use lowercase `\xNN` byte escapes.
 
 ### History blocks
 
@@ -25,7 +47,7 @@ A document may have at most one history block:
 - Rows must be contiguous and dates non-decreasing; same-day rows are valid.
 - No block, or a valid table without data rows, means no history.
 - Multiple, nested, unclosed, or malformed blocks are invalid.
-- Validate history only for selected columns that need it. `score` always needs history validation, including when priority or desired retention is zero. Report required invalid history as `?`.
+- History is always validated for managed documents, including when priority or desired retention is zero.
 
 ## List columns
 
@@ -37,8 +59,6 @@ A document may have at most one history block:
 | `predicted retention` | `-`                       | Integer `0..=99`, or `-` without history          |
 | `difficulty`          | `-`                       | `0..=1` to three decimals, or `-` without history |
 | `score`               | `0..=1` to three decimals | `0..=1` to three decimals                         |
-
-An invalid value required by a selected column outputs `?`.
 
 ## Notes
 
@@ -80,6 +100,10 @@ Question text
 
 <!-- FRONT:END -->
 ```
+
+- Front marker lines may have surrounding whitespace, but their trimmed text must exactly match the markers above.
+- A card has exactly one non-nested, closed front block. An empty front block is valid.
+- Back-block structure is not validated.
 
 Card history uses this schema:
 

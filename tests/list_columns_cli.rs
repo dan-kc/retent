@@ -48,7 +48,7 @@ fn preserves_duplicate_columns() {
 }
 
 #[test]
-fn continues_listing_after_a_visible_invalid_value() {
+fn continues_listing_after_an_invalid_document() {
     let directory = tempdir().unwrap();
     write_file(
         directory.path(),
@@ -73,13 +73,13 @@ fn continues_listing_after_a_visible_invalid_value() {
 
     columns_command(directory.path(), &["priority"])
         .assert()
-        .code(1)
-        .stdout("./invalid.md ?\n./valid.md 8\n")
+        .success()
+        .stdout("./valid.md 8\n")
         .stderr("");
 }
 
 #[test]
-fn unselected_invalid_values_do_not_affect_exit_status() {
+fn unselected_invalid_values_still_skip_the_document() {
     let directory = tempdir().unwrap();
     write_file(
         directory.path(),
@@ -95,6 +95,6 @@ fn unselected_invalid_values_do_not_affect_exit_status() {
     columns_command(directory.path(), &["type"])
         .assert()
         .success()
-        .stdout("./note.md note\n")
+        .stdout("")
         .stderr("");
 }
