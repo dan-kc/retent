@@ -160,6 +160,30 @@ fn handles_a_very_large_pass_without_overflowing() {
 }
 
 #[test]
+fn accepts_surrounding_whitespace_on_history_markers() {
+    let directory = tempdir().unwrap();
+    let today = date_from_today(0);
+    write_file(
+        directory.path(),
+        "note.md",
+        &format!(
+            "---\ntype: note\npriority: 10\n---\n\n\
+             \t<!-- HISTORY:BEGIN -->  \n\n\
+             | Date       | End Line | Pass |\n\
+             | ---------- | -------: | ---- |\n\
+             | {today} | 0        | 0    |\n\n\
+             \t<!-- HISTORY:END -->  \n"
+        ),
+    );
+
+    columns_command(directory.path(), &["score"])
+        .assert()
+        .success()
+        .stdout("./note.md 0.500\n")
+        .stderr("");
+}
+
+#[test]
 fn rejects_malformed_note_history_rows() {
     let directory = tempdir().unwrap();
     let today = date_from_today(0);
@@ -232,6 +256,77 @@ fn rejects_malformed_note_history_blocks() {
 }
 
 #[test]
+fn rejects_nested_history_blocks() {
+    let directory = tempdir().unwrap();
+    let today = date_from_today(0);
+    write_file(
+        directory.path(),
+        "note.md",
+        &format!(
+            "---\ntype: note\npriority: 10\n---\n\n\
+             <!-- HISTORY:BEGIN -->\n\
+             <!-- HISTORY:BEGIN -->\n\n\
+             | Date       | End Line | Pass |\n\
+             | ---------- | -------: | ---- |\n\
+             | {today} | 0        | 0    |\n\n\
+             <!-- HISTORY:END -->\n\
+             <!-- HISTORY:END -->\n"
+        ),
+    );
+
+    columns_command(directory.path(), &["score"])
+        .assert()
+        .code(1)
+        .stdout("./note.md ?\n")
+        .stderr("");
+}
+
+#[test]
+fn notes_reject_card_history_schema() {
+    let directory = tempdir().unwrap();
+    let today = date_from_today(0);
+    write_file(
+        directory.path(),
+        "note.md",
+        &format!(
+            "---\ntype: note\npriority: 10\n---\n\n\
+             <!-- HISTORY:BEGIN -->\n\n\
+             | Date       | Rating |\n\
+             | ---------- | -----: |\n\
+             | {today} | 3      |\n\n\
+             <!-- HISTORY:END -->\n"
+        ),
+    );
+
+    columns_command(directory.path(), &["score"])
+        .assert()
+        .code(1)
+        .stdout("./note.md ?\n")
+        .stderr("");
+}
+
+#[test]
+fn notes_reject_noncontiguous_history_rows() {
+    let directory = tempdir().unwrap();
+    let yesterday = date_from_today(-1);
+    let today = date_from_today(0);
+    write_file(
+        directory.path(),
+        "note.md",
+        &note_with_history(
+            10,
+            &format!("| {yesterday} | 0 | 0 |\n\n| {today} | 1 | 1 |"),
+        ),
+    );
+
+    columns_command(directory.path(), &["score"])
+        .assert()
+        .code(1)
+        .stdout("./note.md ?\n")
+        .stderr("");
+}
+
+#[test]
 fn invalid_priority_makes_the_note_score_invalid() {
     let directory = tempdir().unwrap();
     write_file(
@@ -245,6 +340,22 @@ fn invalid_priority_makes_the_note_score_invalid() {
         .assert()
         .code(1)
         .stdout("./above.md ?\n./missing.md ?\n")
+        .stderr("");
+}
+
+#[test]
+fn zero_priority_note_score_requires_valid_history() {
+    let directory = tempdir().unwrap();
+    write_file(
+        directory.path(),
+        "note.md",
+        &note_with_history(0, "| invalid | history | row |"),
+    );
+
+    columns_command(directory.path(), &["score"])
+        .assert()
+        .code(1)
+        .stdout("./note.md ?\n")
         .stderr("");
 }
 

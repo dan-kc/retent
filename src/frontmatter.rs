@@ -189,7 +189,7 @@ fn needs_card_memory(columns: &[Column], desired_retention: &RequiredInteger) ->
         column.needs_card_memory()
             || matches!(
                 (column, desired_retention),
-                (Column::Score, RequiredInteger::Valid(1..=99))
+                (Column::Score, RequiredInteger::Valid(_))
             )
     })
 }
@@ -288,7 +288,8 @@ fn note_score_value(score: Option<&NoteScore>) -> String {
 fn card_score(desired_retention: &RequiredInteger, memory: Option<&CardMemory>) -> String {
     match (desired_retention, memory) {
         (RequiredInteger::Invalid, _) => "?".to_owned(),
-        (RequiredInteger::Valid(0), _) => "0.000".to_owned(),
+        (RequiredInteger::Valid(_), Some(CardMemory::Invalid) | None) => "?".to_owned(),
+        (RequiredInteger::Valid(0), Some(_)) => "0.000".to_owned(),
         (RequiredInteger::Valid(_), Some(CardMemory::None)) => "0.500".to_owned(),
         (
             RequiredInteger::Valid(desired_retention),
@@ -315,7 +316,6 @@ fn card_score(desired_retention: &RequiredInteger, memory: Option<&CardMemory>) 
                 "?".to_owned()
             }
         }
-        (RequiredInteger::Valid(_), Some(CardMemory::Invalid) | None) => "?".to_owned(),
     }
 }
 

@@ -153,6 +153,22 @@ fn invalid_desired_retention_makes_the_score_invalid() {
 }
 
 #[test]
+fn zero_retention_card_score_requires_valid_history() {
+    let directory = tempdir().unwrap();
+    write_file(
+        directory.path(),
+        "card.md",
+        &card_with_history(0, "| invalid | row |"),
+    );
+
+    columns_command(directory.path(), &["score"])
+        .assert()
+        .code(1)
+        .stdout("./card.md ?\n")
+        .stderr("");
+}
+
+#[test]
 fn malformed_history_makes_the_score_invalid() {
     let directory = tempdir().unwrap();
     let today = date_from_today(0);
@@ -160,6 +176,62 @@ fn malformed_history_makes_the_score_invalid() {
         directory.path(),
         "card.md",
         &card_with_history(85, &format!("| {today} | 5      |")),
+    );
+
+    columns_command(directory.path(), &["score"])
+        .assert()
+        .code(1)
+        .stdout("./card.md ?\n")
+        .stderr("");
+}
+
+#[test]
+fn cards_reject_note_history_schema() {
+    let directory = tempdir().unwrap();
+    let today = date_from_today(0);
+    write_file(
+        directory.path(),
+        "card.md",
+        &format!(
+            "---\ntype: card\ndesired retention: 85\n---\n\n\
+             <!-- FRONT:BEGIN -->\n\n\
+             Question\n\n\
+             <!-- FRONT:END -->\n\n\
+             <!-- HISTORY:BEGIN -->\n\n\
+             | Date       | End Line | Pass |\n\
+             | ---------- | -------: | ---- |\n\
+             | {today} | 0        | 0    |\n\n\
+             <!-- HISTORY:END -->\n"
+        ),
+    );
+
+    columns_command(directory.path(), &["score"])
+        .assert()
+        .code(1)
+        .stdout("./card.md ?\n")
+        .stderr("");
+}
+
+#[test]
+fn cards_reject_noncontiguous_history_rows() {
+    let directory = tempdir().unwrap();
+    let yesterday = date_from_today(-1);
+    let today = date_from_today(0);
+    write_file(
+        directory.path(),
+        "card.md",
+        &format!(
+            "---\ntype: card\ndesired retention: 85\n---\n\n\
+             <!-- FRONT:BEGIN -->\n\n\
+             Question\n\n\
+             <!-- FRONT:END -->\n\n\
+             <!-- HISTORY:BEGIN -->\n\n\
+             | Date       | Rating |\n\
+             | ---------- | -----: |\n\
+             | {yesterday} | 3      |\n\n\
+             | {today} | 3      |\n\n\
+             <!-- HISTORY:END -->\n"
+        ),
     );
 
     columns_command(directory.path(), &["score"])

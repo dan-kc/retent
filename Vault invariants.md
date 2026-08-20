@@ -21,11 +21,11 @@ A document may have at most one history block:
 <!-- HISTORY:END -->
 ```
 
-- Markers and the type-specific table schema must be exact.
+- History marker lines may have surrounding whitespace, but their trimmed text must exactly match the markers above. The type-specific table schema must be exact.
 - Rows must be contiguous and dates non-decreasing; same-day rows are valid.
 - No block, or a valid table without data rows, means no history.
 - Multiple, nested, unclosed, or malformed blocks are invalid.
-- Validate history only for selected columns that need it. Report required invalid history as `?`.
+- Validate history only for selected columns that need it. `score` always needs history validation, including when priority or desired retention is zero. Report required invalid history as `?`.
 
 ## List columns
 
