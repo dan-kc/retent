@@ -1,105 +1,98 @@
-This file defines all assumptions made about the obsidian vault being operated on.
+# Vault invariants
 
-There are many different files in the repo, but usually the only ones of importance are the .md files with
+This is the normative vault format and scheduling specification.
 
-`type: note` or `type: card`
+## General
 
-in the frontrunner.
+- Managed documents are Markdown files with YAML frontmatter `type: note` or `type: card`.
+- Dates are valid `YYYY-MM-DD` local calendar dates, no later than today.
+- Scores are deterministic, range from 0 to 1, and rank larger values first. Calculations retain full precision until output.
+- Queue, filtering, and rotation policies belong to downstream tools.
 
-### note
+### History blocks
 
-A note is a document to revise for using the Incremental Reading method.
-
-It is defined with `type: note` in the frontrunner, and must also have a `priority` field e.g:
-
-```yaml
-type: note
-priority: 1
-tags: [Programming]
-description: "Rust Pinning and it's relationship with Futures."
-```
-
-priority: 0..=10. When something is marked with priority 0 it is still valid, but it will be removed from all rankings. A priority of 10 is the highest rank for the most imprtant notes.
-
-A note may also have a history block like so:
+A document may have at most one history block:
 
 ```md
 <!-- HISTORY:BEGIN -->
 
+...
+
+<!-- HISTORY:END -->
+```
+
+- Markers and the type-specific table schema must be exact.
+- Rows must be contiguous and dates non-decreasing; same-day rows are valid.
+- No block, or a valid table without data rows, means no history.
+- Multiple, nested, unclosed, or malformed blocks are invalid.
+- Validate history only for selected columns that need it. Report required invalid history as `?`.
+
+## List columns
+
+| Column                | Note output               | Card output                                       |
+| --------------------- | ------------------------- | ------------------------------------------------- |
+| `type`                | `note`                    | `card`                                            |
+| `priority`            | Integer `0..=10`          | `-`                                               |
+| `desired retention`   | `-`                       | Integer `0..=99`                                  |
+| `predicted retention` | `-`                       | Integer `0..=99`, or `-` without history          |
+| `difficulty`          | `-`                       | `0..=1` to three decimals, or `-` without history |
+| `score`               | `0..=1` to three decimals | `0..=1` to three decimals                         |
+
+An invalid value required by a selected column outputs `?`.
+
+## Notes
+
+A note requires an unquoted YAML integer `priority: 0..=10`. Ten is highest; zero is valid but scores zero.
+
+Note history uses this schema:
+
+```md
 | Date       | End Line | Pass |
 | ---------- | -------: | ---- |
 | 2026-07-27 |       11 | 0    |
-
-<!-- HISTORY:END -->
 ```
 
-however it is possible for it to have no history block if no history has been recorded yet.
+- `End Line`: uncapped non-negative integer used only for resuming; it need not fit the file's current length.
+- `Pass`: non-negative, non-decreasing integer. Repeats and skips are valid; zero means no completed reading yet.
 
-- Pass >= 0 // Monotonically increasing int
-- 0 <= End Line // Uncapped. Do not check if it is <= total line count of file
-- Date <= Now // monotonically increasing date
+### Note score
 
-This loosely mimmicks SuperMemos incremental reading implementation with a few changes. These notes are supposed to be revised/re-read even after completion. The number of times you have read the note is shown by 'Pass' which tells you which pass you are on. Pass of 0 means you have not read it to completion even once yet.
+For priority `p`, `P = p / 10`. For each row `i`, let `age_i` be its age in whole days:
 
-Also, there is a concept of 'in-rotation' and 'out-of-rotation'. They can either be in the deck or not. The Due date refers to when the card is expecte back into the deck. Ignore any other 'due date' that SuperMemo may use.
-
-### Score calculation
-
-The algorithm for ranking which reading material to show, should closely mimmick SuperMemos, however it should only encorporate priority, pass, and decayed prior exposure. `End Line` is resume-only state and never affects scheduling, treat it as a superficial field.
-
-Do not encorporate any randomness when calculating the score. It must be deterministic. There may be times when the same note is popped up again even after just completing it and that is fine. It is up to downstream implementators to encorporate randomness such that you don't read the same thing again and again.
-
-For priority `p`, let `P = p / 10`. For every history row `i`, let `age_i` be the whole number of days since its date, and define its exposure half-life and remaining exposure as:
-
-`H_i = (11 - p) * 2^pass_i`
-
-`E_i = 2^(-age_i / H_i)`
-
-The note score is:
-
-`score = P / (1 + sum(E_i))`
-
-A note without history has score `P`. A priority of 0 always has score 0. Calculations use full precision and scores are reported with three decimal places.
-
-### card
-
-A card is a flashcard I wish to revise for using the ANKI FSRS algorithm.
-
-It is defined with `type: card` in the frontrunner, and must have a `desired retention` field e.g:
-
-```yaml
-type: card
-desired retention: 85
-tags: [System Design]
+```text
+H_i = (11 - p) * 2^pass_i
+E_i = 2^(-age_i / H_i)
+score = P / (1 + sum(E_i))
 ```
 
-The desired retention field is 0..=99. A desired retention of 0 removes the card from rankings. A card must have a 'front' block like so:
+Sum every row, including repeated dates and passes. `End Line` is ignored. No history scores `P`. Output uses three decimal places.
 
-<!-- FRONT:BEGIN -->
+## Cards
 
-Name two mechanisms used to preserve correctness under retries and concurrency.
+A card requires an unquoted YAML integer `desired retention: 0..=99`. Zero means “not considered now” and scores `0.000`; 1..=99 are percentages.
 
-<!-- FRONT:END -->
-
-It does not need to have a back. A card may also have a history block like so:
+A card requires a front block; its back block is optional.
 
 ```md
-<!-- HISTORY:BEGIN -->
+<!-- FRONT:BEGIN -->
 
-| Date       | Rating |
-| ---------- | -----: |
-| 2026-07-27 |      1 |
-| 2026-07-27 |      4 |
-| 2026-07-31 |      4 |
+Question text
 
-<!-- HISTORY:END -->
+<!-- FRONT:END -->
 ```
 
-however it is possible for it to have no history block if no history has been recorded yet.
+Card history uses this schema:
 
-- Rating: 1..=4 // int
-- Date <= Now // monotonically increasing date
+```md
+| Date       | Rating |
+| ---------- | -----: |
+| 2026-07-27 |      3 |
+```
 
-### Score calculation
+`Rating` is `1=Again`, `2=Hard`, `3=Good`, or `4=Easy`. Replay all rows through FSRS 6.6.1 with default parameters and whole-day intervals.
 
-Ratings are `1=Again`, `2=Hard`, `3=Good`, and `4=Easy`. Cards use FSRS with the configured desired retention.
+### Card calculations
+
+- **Predicted retention:** internal FSRS retrievability `R` remains in 0..=1; output is `min(99, round(100R))`, an integer percentage. No history outputs `-`.
+- **Difficulty:** normalized FSRS difficulty `(D - 1) / 9` in 0..=1, output to three decimals. No history outputs `-`.
+- **Score:** let `t` be whole days since the latest review and `I` the unrounded FSRS target interval for current stability and desired retention. Output `t / (t + I)` to three decimals. No history with non-zero desired retention scores `0.500`.
