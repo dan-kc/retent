@@ -39,7 +39,7 @@ fn audit_escapes_output_breaking_path_characters() {
         .stderr("");
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 #[test]
 fn paths_with_invalid_unicode_use_hexadecimal_byte_escapes() {
     use std::ffi::OsString;

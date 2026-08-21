@@ -30,6 +30,14 @@ pub fn audit_command(root: &Path) -> Command {
     command
 }
 
+pub fn priority_command(root: &Path, operation: &str, value: u8) -> Command {
+    let mut command = cargo_bin_cmd!("retent");
+    command
+        .args(["priority", operation, &value.to_string()])
+        .current_dir(root);
+    command
+}
+
 pub fn columns_command(root: &Path, columns: &[&str]) -> Command {
     let mut command = list_command(root);
     for column in columns {

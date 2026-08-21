@@ -29,6 +29,20 @@ This is the normative vault format and scheduling specification.
 - Findings are sorted by path. `--absolute-path` replaces the default `./`-prefixed relative path.
 - No findings exits successfully. Any finding exits with status 1. Operational failures are written to stderr and also exit with status 1.
 
+`priority` reads newline-separated file paths from standard input. Paths may be relative to the current directory or absolute.
+
+- `increment 1..=10` and `decrement 1..=10` require a YAML frontmatter mapping with an unquoted integer `priority: 0..=10`. A result outside that range is skipped.
+- `add 0..=10` adds priority to a frontmatter mapping without priority, or creates frontmatter when none exists. Any existing priority key is skipped, including one with an invalid value.
+- `upsert 0..=10` creates missing frontmatter, inserts missing priority, or replaces a unique existing priority value. An already-equal priority succeeds without rewriting the file.
+- Document type, extension, body, and managed-document validation do not affect priority editing. Targets must be regular, non-symlink files with valid UTF-8 contents.
+- Existing frontmatter must parse as a YAML mapping. Malformed, unclosed, and non-mapping frontmatter is skipped rather than repaired or replaced.
+- Edits preserve the UTF-8 BOM, newline style, mapping order, comments, and all text outside the priority scalar. A priority key must be a plain top-level `priority` key with an ordinary same-line scalar to be changed. Quoted keys, flow mappings, multiline or compound values, tags, anchors, and ambiguous representations are skipped when changing them would require rewriting frontmatter.
+- New frontmatter contains only priority and is separated from non-empty original content by one blank line.
+- Each canonical file path is processed once. Later relative or absolute aliases are skipped; distinct hard-link names remain separate inputs. Blank input rows are ignored.
+- Successfully edited or already-satisfied paths are output first, followed by skipped paths. Order within each group follows standard input. Successful rows contain the supplied path; skipped rows contain `<path>\t<reason>`.
+- Per-file skips do not change the successful exit status. Command-line, standard-input, current-directory, and standard-output failures exit unsuccessfully.
+- Changed files are replaced atomically with their permission bits preserved. A source changed after reading is skipped rather than overwritten. Atomic replacement does not preserve hard-link identity, ACLs, or extended attributes.
+
 Paths and reasons escape backslashes and output-breaking control characters. Paths that are not valid Unicode use lowercase `\xNN` byte escapes.
 
 ### History blocks

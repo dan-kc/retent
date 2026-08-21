@@ -1,4 +1,5 @@
-use std::io::{self, Write};
+use std::collections::HashSet;
+use std::io::{self, Read, Write};
 use std::path::Path;
 
 use clap::{Args, Parser, Subcommand};
@@ -20,6 +21,9 @@ enum Command {
 
     /// Check every managed Markdown file for validation errors.
     Audit(AuditArgs),
+
+    /// Change priority frontmatter in files read from standard input.
+    Priority(PriorityArgs),
 }
 
 #[derive(Debug, Args)]
@@ -36,6 +40,39 @@ struct ListArgs {
 struct AuditArgs {
     #[command(flatten)]
     paths: PathArgs,
+}
+
+#[derive(Debug, Args)]
+struct PriorityArgs {
+    #[command(subcommand)]
+    operation: PriorityOperation,
+}
+
+#[derive(Debug, Subcommand)]
+enum PriorityOperation {
+    /// Increase an existing priority.
+    Increment {
+        #[arg(value_parser = clap::value_parser!(u8).range(1..=10))]
+        amount: u8,
+    },
+
+    /// Decrease an existing priority.
+    Decrement {
+        #[arg(value_parser = clap::value_parser!(u8).range(1..=10))]
+        amount: u8,
+    },
+
+    /// Add priority when it does not already exist.
+    Add {
+        #[arg(value_parser = clap::value_parser!(u8).range(0..=10))]
+        value: u8,
+    },
+
+    /// Add or replace priority.
+    Upsert {
+        #[arg(value_parser = clap::value_parser!(u8).range(0..=10))]
+        value: u8,
+    },
 }
 
 #[derive(Debug, Args)]
@@ -56,7 +93,73 @@ pub(crate) fn run() -> Result<Outcome, String> {
     match cli.command {
         Command::List(args) => list(args),
         Command::Audit(args) => audit(args),
+        Command::Priority(args) => edit_priority(args),
     }
+}
+
+fn edit_priority(args: PriorityArgs) -> Result<Outcome, String> {
+    let root = std::env::current_dir()
+        .map_err(|error| format!("cannot determine the current directory: {error}"))?;
+    let mut input = String::new();
+    io::stdin()
+        .lock()
+        .read_to_string(&mut input)
+        .map_err(|error| format!("cannot read standard input: {error}"))?;
+    let action = match args.operation {
+        PriorityOperation::Increment { amount } => crate::priority::Action::Increment(amount),
+        PriorityOperation::Decrement { amount } => crate::priority::Action::Decrement(amount),
+        PriorityOperation::Add { value } => crate::priority::Action::Add(value),
+        PriorityOperation::Upsert { value } => crate::priority::Action::Upsert(value),
+    };
+    let mut edited = String::new();
+    let mut skipped = String::new();
+    let mut provided = HashSet::new();
+
+    for supplied in input.lines().filter(|line| !line.is_empty()) {
+        let supplied_path = Path::new(supplied);
+        let path = if supplied_path.is_absolute() {
+            supplied_path.to_path_buf()
+        } else {
+            root.join(supplied_path)
+        };
+
+        let path = match crate::priority::canonical_target(&path) {
+            Ok(path) if provided.insert(path.clone()) => path,
+            Ok(_) => {
+                append_escaped_path(&mut skipped, supplied_path);
+                skipped.push_str("\tfile was already provided\n");
+                continue;
+            }
+            Err(reason) => {
+                append_escaped_path(&mut skipped, supplied_path);
+                skipped.push('\t');
+                append_escaped_text(&mut skipped, &reason);
+                skipped.push('\n');
+                continue;
+            }
+        };
+
+        match crate::priority::edit(&path, action) {
+            Ok(()) => {
+                append_escaped_path(&mut edited, supplied_path);
+                edited.push('\n');
+            }
+            Err(reason) => {
+                append_escaped_path(&mut skipped, supplied_path);
+                skipped.push('\t');
+                append_escaped_text(&mut skipped, &reason);
+                skipped.push('\n');
+            }
+        }
+    }
+
+    edited.push_str(&skipped);
+    io::stdout()
+        .lock()
+        .write_all(edited.as_bytes())
+        .map_err(|error| format!("cannot write output: {error}"))?;
+
+    Ok(Outcome::Success)
 }
 
 fn list(args: ListArgs) -> Result<Outcome, String> {
