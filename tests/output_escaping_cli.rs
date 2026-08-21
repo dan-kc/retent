@@ -7,14 +7,14 @@ use common::{audit_command, list_command, write_file};
 
 #[cfg(unix)]
 #[test]
-fn list_escapes_output_breaking_path_characters() {
+fn list_preserves_output_breaking_path_characters() {
     let directory = tempdir().unwrap();
     write_file(directory.path(), "line\nbreak\\tab\t.md", "Unmanaged.\n");
 
     list_command(directory.path())
         .assert()
         .success()
-        .stdout("./line\\nbreak\\\\tab\\t.md\n")
+        .stdout(b"./line\nbreak\\tab\t.md\x00".as_slice())
         .stderr("");
 }
 
@@ -41,7 +41,7 @@ fn audit_escapes_output_breaking_path_characters() {
 
 #[cfg(target_os = "linux")]
 #[test]
-fn paths_with_invalid_unicode_use_hexadecimal_byte_escapes() {
+fn list_preserves_invalid_unicode_path_bytes() {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;
 
@@ -52,6 +52,6 @@ fn paths_with_invalid_unicode_use_hexadecimal_byte_escapes() {
     list_command(directory.path())
         .assert()
         .success()
-        .stdout("./invalid-\\xff.md\n")
+        .stdout(b"./invalid-\xff.md\x00".as_slice())
         .stderr("");
 }

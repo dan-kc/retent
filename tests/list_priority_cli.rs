@@ -32,7 +32,7 @@ fn accepts_priority_boundaries() {
     columns_command(directory.path(), &["priority"])
         .assert()
         .success()
-        .stdout("./maximum.md 10\n./minimum.md 0\n")
+        .stdout(b"10\t./maximum.md\x000\t./minimum.md\x00".as_slice())
         .stderr("");
 }
 
@@ -161,6 +161,6 @@ fn card_priority_always_renders_a_dash() {
     columns_command(directory.path(), &["priority"])
         .assert()
         .success()
-        .stdout("./card.md -\n")
+        .stdout(b"-\t./card.md\x00".as_slice())
         .stderr("");
 }

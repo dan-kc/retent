@@ -21,7 +21,7 @@ fn malformed_yaml_is_unmanaged_for_every_selected_column() {
     columns_command(directory.path(), &["type", "priority", "desired retention"])
         .assert()
         .success()
-        .stdout("./malformed.md - - -\n")
+        .stdout(b"-\t-\t-\t./malformed.md\x00".as_slice())
         .stderr("");
 }
 
@@ -41,7 +41,7 @@ fn unclosed_frontmatter_is_unmanaged() {
     columns_command(directory.path(), &["type"])
         .assert()
         .success()
-        .stdout("./unclosed.md -\n")
+        .stdout(b"-\t./unclosed.md\x00".as_slice())
         .stderr("");
 }
 
@@ -62,7 +62,7 @@ fn non_mapping_frontmatter_renders_a_dash() {
     columns_command(directory.path(), &["type"])
         .assert()
         .success()
-        .stdout("./sequence.md -\n")
+        .stdout(b"-\t./sequence.md\x00".as_slice())
         .stderr("");
 }
 
@@ -116,6 +116,6 @@ fn continues_listing_after_malformed_frontmatter() {
     columns_command(directory.path(), &["type"])
         .assert()
         .success()
-        .stdout("./malformed.md -\n./valid.md note\n")
+        .stdout(b"-\t./malformed.md\x00note\t./valid.md\x00".as_slice())
         .stderr("");
 }

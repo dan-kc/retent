@@ -123,7 +123,7 @@ fn listing_continues_with_valid_and_unmanaged_documents() {
     columns_command(directory.path(), &["type", "priority"])
         .assert()
         .success()
-        .stdout("./misc.md - -\n./valid.md note 8\n")
+        .stdout(b"-\t-\t./misc.md\x00note\t8\t./valid.md\x00".as_slice())
         .stderr("");
 }
 
@@ -143,7 +143,7 @@ fn malformed_yaml_frontmatter_is_unmanaged() {
     columns_command(directory.path(), &["type", "priority"])
         .assert()
         .success()
-        .stdout("./malformed.md - -\n")
+        .stdout(b"-\t-\t./malformed.md\x00".as_slice())
         .stderr("");
 }
 
@@ -163,7 +163,7 @@ fn unclosed_frontmatter_is_unmanaged() {
     columns_command(directory.path(), &["type"])
         .assert()
         .success()
-        .stdout("./unclosed.md -\n")
+        .stdout(b"-\t./unclosed.md\x00".as_slice())
         .stderr("");
 }
 

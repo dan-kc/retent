@@ -19,6 +19,8 @@ This is the normative vault format and scheduling specification.
 - Valid managed documents and unmanaged Markdown files are listed. Invalid entries are skipped without changing the successful exit status.
 - Every managed document is fully validated even when no columns, or unrelated columns, are selected.
 - Unmanaged files output `-` for every selected column.
+- Each output record contains the selected metadata values in requested order, followed by the path. Fields are separated by tabs and records are terminated by NUL. With no selected columns, a record contains only the path and its NUL terminator.
+- Paths are output as raw filesystem bytes. Spaces, tabs, newlines, backslashes, and non-Unicode bytes are not escaped. Because the path is the final field, tabs within it do not make the selected metadata fields ambiguous.
 - `--absolute-path` replaces the default `./`-prefixed relative path.
 
 `audit` applies the same discovery and validation rules.
@@ -43,7 +45,7 @@ This is the normative vault format and scheduling specification.
 - Per-file skips do not change the successful exit status. Command-line, standard-input, current-directory, and standard-output failures exit unsuccessfully.
 - Changed files are replaced atomically with their permission bits preserved. A source changed after reading is skipped rather than overwritten. Atomic replacement does not preserve hard-link identity, ACLs, or extended attributes.
 
-Paths and reasons escape backslashes and output-breaking control characters. Paths that are not valid Unicode use lowercase `\xNN` byte escapes.
+`audit` and `priority` output paths and reasons escape backslashes and output-breaking control characters. Paths that are not valid Unicode use lowercase `\xNN` byte escapes.
 
 ### History blocks
 

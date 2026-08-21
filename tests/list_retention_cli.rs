@@ -38,7 +38,7 @@ fn accepts_desired_retention_boundaries() {
     columns_command(directory.path(), &["desired retention"])
         .assert()
         .success()
-        .stdout("./maximum.md 99\n./minimum.md 0\n")
+        .stdout(b"99\t./maximum.md\x000\t./minimum.md\x00".as_slice())
         .stderr("");
 }
 
@@ -203,6 +203,6 @@ fn note_desired_retention_always_renders_a_dash() {
     columns_command(directory.path(), &["desired retention"])
         .assert()
         .success()
-        .stdout("./note.md -\n")
+        .stdout(b"-\t./note.md\x00".as_slice())
         .stderr("");
 }

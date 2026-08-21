@@ -22,7 +22,7 @@ fn preserves_requested_column_order() {
     columns_command(directory.path(), &["priority", "type"])
         .assert()
         .success()
-        .stdout("./note.md 8 note\n")
+        .stdout(b"8\tnote\t./note.md\x00".as_slice())
         .stderr("");
 }
 
@@ -43,7 +43,7 @@ fn preserves_duplicate_columns() {
     columns_command(directory.path(), &["priority", "priority"])
         .assert()
         .success()
-        .stdout("./note.md 8 8\n")
+        .stdout(b"8\t8\t./note.md\x00".as_slice())
         .stderr("");
 }
 
@@ -74,7 +74,7 @@ fn continues_listing_after_an_invalid_document() {
     columns_command(directory.path(), &["priority"])
         .assert()
         .success()
-        .stdout("./valid.md 8\n")
+        .stdout(b"8\t./valid.md\x00".as_slice())
         .stderr("");
 }
 

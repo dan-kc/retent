@@ -16,7 +16,7 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// List Markdown files beneath the current directory.
+    /// List Markdown files as NUL-terminated records.
     List(ListArgs),
 
     /// Check every managed Markdown file for validation errors.
@@ -31,7 +31,7 @@ struct ListArgs {
     #[command(flatten)]
     paths: PathArgs,
 
-    /// Append a frontmatter column to each row.
+    /// Prepend a metadata field to each record.
     #[arg(long = "col", value_enum, value_name = "COLUMN")]
     columns: Vec<Column>,
 }
@@ -167,7 +167,7 @@ fn list(args: ListArgs) -> Result<Outcome, String> {
         .map_err(|error| format!("cannot determine the current directory: {error}"))?;
     let paths = crate::discover::markdown_files(&root)?;
     let today = jiff::Zoned::now().date();
-    let mut output = String::new();
+    let mut output = Vec::new();
 
     for path in paths {
         let document = Document::read(&path, today);
@@ -175,21 +175,43 @@ fn list(args: ListArgs) -> Result<Outcome, String> {
             continue;
         };
 
-        append_path(&mut output, &root, &path, args.paths.absolute_path)?;
-
         for value in values {
-            output.push(' ');
-            output.push_str(&value);
+            output.extend_from_slice(value.as_bytes());
+            output.push(b'\t');
         }
-        output.push('\n');
+        append_raw_path(&mut output, &root, &path, args.paths.absolute_path)?;
+        output.push(0);
     }
 
-    io::stdout()
-        .lock()
-        .write_all(output.as_bytes())
+    let mut stdout = io::stdout().lock();
+    stdout
+        .write_all(&output)
+        .and_then(|()| stdout.flush())
         .map_err(|error| format!("cannot write output: {error}"))?;
 
     Ok(Outcome::Success)
+}
+
+fn append_raw_path(
+    output: &mut Vec<u8>,
+    root: &Path,
+    path: &Path,
+    absolute: bool,
+) -> Result<(), String> {
+    if absolute {
+        output.extend_from_slice(path.as_os_str().as_encoded_bytes());
+    } else {
+        let relative = path.strip_prefix(root).map_err(|error| {
+            format!(
+                "{} is not beneath {}: {error}",
+                path.display(),
+                root.display()
+            )
+        })?;
+        output.extend_from_slice(b"./");
+        output.extend_from_slice(relative.as_os_str().as_encoded_bytes());
+    }
+    Ok(())
 }
 
 fn audit(args: AuditArgs) -> Result<Outcome, String> {

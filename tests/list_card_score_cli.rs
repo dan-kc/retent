@@ -50,10 +50,8 @@ fn new_cards_have_a_neutral_score() {
         .assert()
         .success()
         .stdout(
-            "./empty-history.md 0.500\n\
-             ./no-history.md 0.500\n\
-             ./not-ranked.md 0.000\n\
-             ./other.md -\n",
+            b"0.500\t./empty-history.md\x000.500\t./no-history.md\x000.000\t./not-ranked.md\x00-\t./other.md\x00"
+                .as_slice(),
         )
         .stderr("");
 }
@@ -71,7 +69,7 @@ fn a_reviewed_card_starts_with_a_zero_score() {
     columns_command(directory.path(), &["score"])
         .assert()
         .success()
-        .stdout("./card.md 0.000\n")
+        .stdout(b"0.000\t./card.md\x00".as_slice())
         .stderr("");
 }
 
@@ -88,7 +86,7 @@ fn score_uses_the_unrounded_fsrs_target_interval() {
     columns_command(directory.path(), &["score"])
         .assert()
         .success()
-        .stdout("./card.md 0.695\n")
+        .stdout(b"0.695\t./card.md\x00".as_slice())
         .stderr("");
 }
 
@@ -108,9 +106,8 @@ fn higher_desired_retention_produces_a_higher_score() {
         .assert()
         .success()
         .stdout(
-            "./retention-00.md 0.000\n\
-             ./retention-85.md 0.695\n\
-             ./retention-99.md 0.984\n",
+            b"0.000\t./retention-00.md\x000.695\t./retention-85.md\x000.984\t./retention-99.md\x00"
+                .as_slice(),
         )
         .stderr("");
 }
@@ -132,7 +129,7 @@ fn score_and_memory_columns_share_the_full_history() {
     )
     .assert()
     .success()
-    .stdout("./card.md 0.102 97 0.417\n")
+    .stdout(b"0.102\t97\t0.417\t./card.md\x00".as_slice())
     .stderr("");
 }
 

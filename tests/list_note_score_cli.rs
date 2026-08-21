@@ -46,10 +46,8 @@ fn notes_without_exposure_score_from_priority() {
         .assert()
         .success()
         .stdout(
-            "./empty-history.md 0.800\n\
-             ./priority-00.md 0.000\n\
-             ./priority-05.md 0.500\n\
-             ./priority-10.md 1.000\n",
+            b"0.800\t./empty-history.md\x000.000\t./priority-00.md\x000.500\t./priority-05.md\x001.000\t./priority-10.md\x00"
+                .as_slice(),
         )
         .stderr("");
 }
@@ -75,7 +73,7 @@ fn every_recent_exposure_contributes_to_the_score() {
     columns_command(directory.path(), &["score"])
         .assert()
         .success()
-        .stdout("./one.md 0.500\n./two.md 0.333\n")
+        .stdout(b"0.500\t./one.md\x000.333\t./two.md\x00".as_slice())
         .stderr("");
 }
 
@@ -94,7 +92,7 @@ fn each_exposures_pass_controls_its_decay() {
     columns_command(directory.path(), &["score"])
         .assert()
         .success()
-        .stdout("./pass-0.md 0.800\n./pass-1.md 0.667\n./pass-2.md 0.586\n")
+        .stdout(b"0.800\t./pass-0.md\x000.667\t./pass-1.md\x000.586\t./pass-2.md\x00".as_slice())
         .stderr("");
 }
 
@@ -135,7 +133,7 @@ fn score_uses_the_full_history_but_not_end_line() {
     columns_command(directory.path(), &["score"])
         .assert()
         .success()
-        .stdout("./large-end-lines.md 0.364\n./small-end-lines.md 0.364\n")
+        .stdout(b"0.364\t./large-end-lines.md\x000.364\t./small-end-lines.md\x00".as_slice())
         .stderr("");
 }
 
@@ -155,7 +153,7 @@ fn handles_a_very_large_pass_without_overflowing() {
     columns_command(directory.path(), &["score"])
         .assert()
         .success()
-        .stdout("./note.md 0.500\n")
+        .stdout(b"0.500\t./note.md\x00".as_slice())
         .stderr("");
 }
 
@@ -179,7 +177,7 @@ fn accepts_surrounding_whitespace_on_history_markers() {
     columns_command(directory.path(), &["score"])
         .assert()
         .success()
-        .stdout("./note.md 0.500\n")
+        .stdout(b"0.500\t./note.md\x00".as_slice())
         .stderr("");
 }
 

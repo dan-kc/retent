@@ -35,7 +35,7 @@ fn renders_recognized_types() {
     columns_command(directory.path(), &["type"])
         .assert()
         .success()
-        .stdout("./card.md card\n./note.md note\n")
+        .stdout(b"card\t./card.md\x00note\t./note.md\x00".as_slice())
         .stderr("");
 }
 
@@ -53,7 +53,7 @@ fn missing_type_renders_dashes() {
     columns_command(directory.path(), &["type", "priority", "desired retention"])
         .assert()
         .success()
-        .stdout("./misc.md - - -\n")
+        .stdout(b"-\t-\t-\t./misc.md\x00".as_slice())
         .stderr("");
 }
 
@@ -75,7 +75,7 @@ fn unknown_string_type_renders_dashes() {
     columns_command(directory.path(), &["type", "priority", "desired retention"])
         .assert()
         .success()
-        .stdout("./random.md - - -\n")
+        .stdout(b"-\t-\t-\t./random.md\x00".as_slice())
         .stderr("");
 }
 
@@ -97,6 +97,6 @@ fn non_string_type_renders_dashes() {
     columns_command(directory.path(), &["type", "priority", "desired retention"])
         .assert()
         .success()
-        .stdout("./numeric.md - - -\n")
+        .stdout(b"-\t-\t-\t./numeric.md\x00".as_slice())
         .stderr("");
 }

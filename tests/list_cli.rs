@@ -28,7 +28,7 @@ fn lists_markdown_files_recursively() {
     list_command(directory.path())
         .assert()
         .success()
-        .stdout("./nested/card.md\n./note.md\n")
+        .stdout(b"./nested/card.md\x00./note.md\x00".as_slice())
         .stderr("");
 }
 
@@ -42,7 +42,7 @@ fn sorts_paths_lexically() {
     list_command(directory.path())
         .assert()
         .success()
-        .stdout("./alpha.md\n./middle.md\n./zeta.md\n")
+        .stdout(b"./alpha.md\x00./middle.md\x00./zeta.md\x00".as_slice())
         .stderr("");
 }
 
@@ -56,7 +56,7 @@ fn matches_markdown_extensions_case_insensitively() {
     list_command(directory.path())
         .assert()
         .success()
-        .stdout("./lower.md\n./mixed.Md\n./upper.MD\n")
+        .stdout(b"./lower.md\x00./mixed.Md\x00./upper.MD\x00".as_slice())
         .stderr("");
 }
 
@@ -70,7 +70,7 @@ fn ignores_files_without_a_markdown_extension() {
     list_command(directory.path())
         .assert()
         .success()
-        .stdout("./card.md\n")
+        .stdout(b"./card.md\x00".as_slice())
         .stderr("");
 }
 
@@ -82,7 +82,7 @@ fn includes_hidden_directories_other_than_git() {
     list_command(directory.path())
         .assert()
         .success()
-        .stdout("./.notes/hidden.md\n")
+        .stdout(b"./.notes/hidden.md\x00".as_slice())
         .stderr("");
 }
 
@@ -97,7 +97,7 @@ fn skips_git_directories_at_any_depth() {
     list_command(directory.path())
         .assert()
         .success()
-        .stdout("./nested/visible.md\n./visible.md\n")
+        .stdout(b"./nested/visible.md\x00./visible.md\x00".as_slice())
         .stderr("");
 }
 
@@ -113,7 +113,7 @@ fn excludes_file_symlinks() {
     list_command(directory.path())
         .assert()
         .success()
-        .stdout("./real.md\n")
+        .stdout(b"./real.md\x00".as_slice())
         .stderr("");
 }
 
@@ -129,7 +129,7 @@ fn does_not_traverse_directory_symlinks() {
     list_command(directory.path())
         .assert()
         .success()
-        .stdout("./nested/inside.md\n")
+        .stdout(b"./nested/inside.md\x00".as_slice())
         .stderr("");
 }
 
@@ -138,7 +138,12 @@ fn absolute_path_replaces_the_relative_path_column() {
     let directory = tempdir().unwrap();
     write_file(directory.path(), "nested/card.md", "");
     let root = fs::canonicalize(directory.path()).unwrap();
-    let expected = format!("{}\n", root.join("nested/card.md").display());
+    let mut expected = root
+        .join("nested/card.md")
+        .as_os_str()
+        .as_encoded_bytes()
+        .to_vec();
+    expected.push(0);
 
     list_command(directory.path())
         .arg("--absolute-path")

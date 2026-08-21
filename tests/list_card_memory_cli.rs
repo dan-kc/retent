@@ -48,7 +48,10 @@ fn renders_dashes_without_a_card_memory_state() {
     columns_command(directory.path(), &["predicted retention", "difficulty"])
         .assert()
         .success()
-        .stdout("./card-empty-history.md - -\n./card-no-history.md - -\n./note.md - -\n")
+        .stdout(
+            b"-\t-\t./card-empty-history.md\x00-\t-\t./card-no-history.md\x00-\t-\t./note.md\x00"
+                .as_slice(),
+        )
         .stderr("");
 }
 
@@ -68,10 +71,8 @@ fn derives_memory_columns_from_each_initial_rating() {
         .assert()
         .success()
         .stdout(
-            "./again.md 99 0.601\n\
-         ./easy.md 99 0.000\n\
-         ./good.md 99 0.124\n\
-         ./hard.md 99 0.457\n",
+            b"99\t0.601\t./again.md\x0099\t0.000\t./easy.md\x0099\t0.124\t./good.md\x0099\t0.457\t./hard.md\x00"
+                .as_slice(),
         )
         .stderr("");
 }
@@ -90,7 +91,7 @@ fn replays_the_entire_history_and_applies_current_decay() {
     columns_command(directory.path(), &["predicted retention", "difficulty"])
         .assert()
         .success()
-        .stdout("./card.md 97 0.417\n")
+        .stdout(b"97\t0.417\t./card.md\x00".as_slice())
         .stderr("");
 }
 
@@ -109,7 +110,7 @@ fn accepts_same_day_reviews_in_table_order() {
     columns_command(directory.path(), &["predicted retention", "difficulty"])
         .assert()
         .success()
-        .stdout("./card.md 73 0.467\n")
+        .stdout(b"73\t0.467\t./card.md\x00".as_slice())
         .stderr("");
 }
 
