@@ -163,3 +163,109 @@ fn empty_tree_returns_nothing_successfully() {
         .stdout("")
         .stderr("");
 }
+
+#[test]
+fn inherits_git_root_metadata_without_expanding_discovery() {
+    let directory = tempdir().unwrap();
+    fs::create_dir(directory.path().join(".git")).unwrap();
+    write_file(
+        directory.path(),
+        "metadata.yaml",
+        "type: note\npriority: 5\n",
+    );
+    write_file(directory.path(), "outside.md", "Outside.\n");
+    write_file(directory.path(), "nested/inside.md", "Inside.\n");
+
+    let mut command = list_command(&directory.path().join("nested"));
+    command.args(["--col", "type", "--col", "priority"]);
+    command
+        .assert()
+        .success()
+        .stdout(b"note\t5\t./inside.md\x00".as_slice())
+        .stderr("");
+}
+
+#[test]
+fn metadata_filename_is_case_sensitive_and_requires_yaml_extension() {
+    let directory = tempdir().unwrap();
+    write_file(
+        directory.path(),
+        "Metadata.yaml",
+        "type: note\npriority: 4\n",
+    );
+    write_file(
+        directory.path(),
+        "metadata.yml",
+        "type: note\npriority: 5\n",
+    );
+    write_file(directory.path(), "note.md", "Body.\n");
+
+    let mut command = list_command(directory.path());
+    command.args(["--col", "type"]);
+    command
+        .assert()
+        .success()
+        .stdout(b"-\t./note.md\x00".as_slice())
+        .stderr("");
+}
+
+#[cfg(unix)]
+#[test]
+fn metadata_file_symlinks_are_ignored() {
+    use std::os::unix::fs::symlink;
+
+    let directory = tempdir().unwrap();
+    write_file(
+        directory.path(),
+        "defaults.yaml",
+        "type: note\npriority: 4\n",
+    );
+    symlink("defaults.yaml", directory.path().join("metadata.yaml")).unwrap();
+    write_file(directory.path(), "note.md", "Body.\n");
+
+    let mut command = list_command(directory.path());
+    command.args(["--col", "type"]);
+    command
+        .assert()
+        .success()
+        .stdout(b"-\t./note.md\x00".as_slice())
+        .stderr("");
+}
+
+#[test]
+fn inheritance_stops_at_cwd_without_a_git_root() {
+    let directory = tempdir().unwrap();
+    write_file(
+        directory.path(),
+        "metadata.yaml",
+        "type: note\npriority: 4\n",
+    );
+    write_file(directory.path(), "nested/note.md", "Body.\n");
+
+    let mut command = list_command(&directory.path().join("nested"));
+    command.args(["--col", "type"]);
+    command
+        .assert()
+        .success()
+        .stdout(b"-\t./note.md\x00".as_slice())
+        .stderr("");
+}
+
+#[test]
+fn metadata_accepts_a_utf8_bom() {
+    let directory = tempdir().unwrap();
+    write_file(
+        directory.path(),
+        "metadata.yaml",
+        "\u{feff}type: note\npriority: 4\n",
+    );
+    write_file(directory.path(), "note.md", "Body.\n");
+
+    let mut command = list_command(directory.path());
+    command.args(["--col", "type", "--col", "priority"]);
+    command
+        .assert()
+        .success()
+        .stdout(b"note\t4\t./note.md\x00".as_slice())
+        .stderr("");
+}

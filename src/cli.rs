@@ -1,10 +1,9 @@
-use std::collections::HashSet;
-use std::io::{self, Read, Write};
+use std::io::{self, Write};
 use std::path::Path;
 
 use clap::{Args, Parser, Subcommand};
 
-use crate::frontmatter::{Column, Document};
+use crate::frontmatter::{Column, Document, Metadata};
 
 /// Markdown-native incremental learning.
 #[derive(Debug, Parser)]
@@ -21,9 +20,6 @@ enum Command {
 
     /// Check every managed Markdown file for validation errors.
     Audit(AuditArgs),
-
-    /// Change priority frontmatter in files read from standard input.
-    Priority(PriorityArgs),
 }
 
 #[derive(Debug, Args)]
@@ -40,39 +36,6 @@ struct ListArgs {
 struct AuditArgs {
     #[command(flatten)]
     paths: PathArgs,
-}
-
-#[derive(Debug, Args)]
-struct PriorityArgs {
-    #[command(subcommand)]
-    operation: PriorityOperation,
-}
-
-#[derive(Debug, Subcommand)]
-enum PriorityOperation {
-    /// Increase an existing priority.
-    Increment {
-        #[arg(value_parser = clap::value_parser!(u8).range(1..=10))]
-        amount: u8,
-    },
-
-    /// Decrease an existing priority.
-    Decrement {
-        #[arg(value_parser = clap::value_parser!(u8).range(1..=10))]
-        amount: u8,
-    },
-
-    /// Add priority when it does not already exist.
-    Add {
-        #[arg(value_parser = clap::value_parser!(u8).range(0..=10))]
-        value: u8,
-    },
-
-    /// Add or replace priority.
-    Upsert {
-        #[arg(value_parser = clap::value_parser!(u8).range(0..=10))]
-        value: u8,
-    },
 }
 
 #[derive(Debug, Args)]
@@ -93,84 +56,20 @@ pub(crate) fn run() -> Result<Outcome, String> {
     match cli.command {
         Command::List(args) => list(args),
         Command::Audit(args) => audit(args),
-        Command::Priority(args) => edit_priority(args),
     }
-}
-
-fn edit_priority(args: PriorityArgs) -> Result<Outcome, String> {
-    let root = std::env::current_dir()
-        .map_err(|error| format!("cannot determine the current directory: {error}"))?;
-    let mut input = String::new();
-    io::stdin()
-        .lock()
-        .read_to_string(&mut input)
-        .map_err(|error| format!("cannot read standard input: {error}"))?;
-    let action = match args.operation {
-        PriorityOperation::Increment { amount } => crate::priority::Action::Increment(amount),
-        PriorityOperation::Decrement { amount } => crate::priority::Action::Decrement(amount),
-        PriorityOperation::Add { value } => crate::priority::Action::Add(value),
-        PriorityOperation::Upsert { value } => crate::priority::Action::Upsert(value),
-    };
-    let mut edited = String::new();
-    let mut skipped = String::new();
-    let mut provided = HashSet::new();
-
-    for supplied in input.lines().filter(|line| !line.is_empty()) {
-        let supplied_path = Path::new(supplied);
-        let path = if supplied_path.is_absolute() {
-            supplied_path.to_path_buf()
-        } else {
-            root.join(supplied_path)
-        };
-
-        let path = match crate::priority::canonical_target(&path) {
-            Ok(path) if provided.insert(path.clone()) => path,
-            Ok(_) => {
-                append_escaped_path(&mut skipped, supplied_path);
-                skipped.push_str("\tfile was already provided\n");
-                continue;
-            }
-            Err(reason) => {
-                append_escaped_path(&mut skipped, supplied_path);
-                skipped.push('\t');
-                append_escaped_text(&mut skipped, &reason);
-                skipped.push('\n');
-                continue;
-            }
-        };
-
-        match crate::priority::edit(&path, action) {
-            Ok(()) => {
-                append_escaped_path(&mut edited, supplied_path);
-                edited.push('\n');
-            }
-            Err(reason) => {
-                append_escaped_path(&mut skipped, supplied_path);
-                skipped.push('\t');
-                append_escaped_text(&mut skipped, &reason);
-                skipped.push('\n');
-            }
-        }
-    }
-
-    edited.push_str(&skipped);
-    io::stdout()
-        .lock()
-        .write_all(edited.as_bytes())
-        .map_err(|error| format!("cannot write output: {error}"))?;
-
-    Ok(Outcome::Success)
 }
 
 fn list(args: ListArgs) -> Result<Outcome, String> {
     let root = std::env::current_dir()
         .map_err(|error| format!("cannot determine the current directory: {error}"))?;
-    let paths = crate::discover::markdown_files(&root)?;
+    let files = crate::discover::vault_files(&root)?;
+    let metadata = Metadata::load(files.inheritance_root, files.metadata)?;
     let today = jiff::Zoned::now().date();
     let mut output = Vec::new();
 
-    for path in paths {
-        let document = Document::read(&path, today);
+    for path in files.markdown {
+        let defaults = metadata.values_for(&path);
+        let document = Document::read(&path, today, &defaults);
         let Some(values) = document.values(&args.columns) else {
             continue;
         };
@@ -217,25 +116,45 @@ fn append_raw_path(
 fn audit(args: AuditArgs) -> Result<Outcome, String> {
     let root = std::env::current_dir()
         .map_err(|error| format!("cannot determine the current directory: {error}"))?;
-    let paths = crate::discover::markdown_files(&root)?;
+    let files = crate::discover::vault_files(&root)?;
+    let metadata = Metadata::load(files.inheritance_root, files.metadata)?;
     let today = jiff::Zoned::now().date();
-    let mut output = String::new();
-    let mut invalid = false;
+    let mut findings: Vec<_> = metadata
+        .findings()
+        .iter()
+        .map(|finding| {
+            (
+                finding.path().to_path_buf(),
+                vec![finding.reason().to_owned()],
+            )
+        })
+        .collect();
 
-    for path in paths {
-        let document = Document::read(&path, today);
+    for path in files.markdown {
+        let defaults = metadata.values_for(&path);
+        let document = Document::read(&path, today, &defaults);
         let Some(issues) = document.issues() else {
             continue;
         };
+        findings.push((
+            path,
+            issues
+                .iter()
+                .map(|issue| issue.message().to_owned())
+                .collect(),
+        ));
+    }
 
-        invalid = true;
-        append_path(&mut output, &root, &path, args.paths.absolute_path)?;
+    findings.sort_by(|(left, _), (right, _)| left.as_os_str().cmp(right.as_os_str()));
+    let mut output = String::new();
+    for (path, issues) in &findings {
+        append_path(&mut output, &root, path, args.paths.absolute_path)?;
         output.push('\t');
         for (index, issue) in issues.iter().enumerate() {
             if index > 0 {
                 output.push_str("; ");
             }
-            append_escaped_text(&mut output, issue.message());
+            append_escaped_text(&mut output, issue);
         }
         output.push('\n');
     }
@@ -245,10 +164,10 @@ fn audit(args: AuditArgs) -> Result<Outcome, String> {
         .write_all(output.as_bytes())
         .map_err(|error| format!("cannot write output: {error}"))?;
 
-    if invalid {
-        Ok(Outcome::Invalid)
-    } else {
+    if findings.is_empty() {
         Ok(Outcome::Success)
+    } else {
+        Ok(Outcome::Invalid)
     }
 }
 
@@ -260,16 +179,27 @@ fn append_path(
 ) -> Result<(), String> {
     if absolute {
         append_escaped_path(output, path);
+    } else if let Ok(relative) = path.strip_prefix(root) {
+        output.push_str("./");
+        append_escaped_path(output, relative);
     } else {
-        let relative = path.strip_prefix(root).map_err(|error| {
+        let parent = path
+            .parent()
+            .ok_or_else(|| format!("{} does not have a parent directory", path.display()))?;
+        let descent = root.strip_prefix(parent).map_err(|error| {
             format!(
-                "{} is not beneath {}: {error}",
+                "{} is neither beneath nor an ancestor of {}: {error}",
                 path.display(),
                 root.display()
             )
         })?;
-        output.push_str("./");
-        append_escaped_path(output, relative);
+        for _ in descent.components() {
+            output.push_str("../");
+        }
+        let name = path
+            .file_name()
+            .ok_or_else(|| format!("{} does not have a file name", path.display()))?;
+        append_escaped_path(output, Path::new(name));
     }
     Ok(())
 }

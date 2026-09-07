@@ -58,6 +58,31 @@ fn missing_type_renders_dashes() {
 }
 
 #[test]
+fn explicit_unknown_type_overrides_inherited_type() {
+    let directory = tempdir().unwrap();
+    write_file(
+        directory.path(),
+        "metadata.yaml",
+        "type: note\npriority: 4\n",
+    );
+    write_file(
+        directory.path(),
+        "document.md",
+        indoc! {r#"
+            ---
+            type: task
+            ---
+        "#},
+    );
+
+    columns_command(directory.path(), &["type", "priority"])
+        .assert()
+        .success()
+        .stdout(b"-\t-\t./document.md\x00".as_slice())
+        .stderr("");
+}
+
+#[test]
 fn unknown_string_type_renders_dashes() {
     let directory = tempdir().unwrap();
     write_file(
@@ -80,8 +105,13 @@ fn unknown_string_type_renders_dashes() {
 }
 
 #[test]
-fn non_string_type_renders_dashes() {
+fn non_string_type_overrides_an_inherited_type() {
     let directory = tempdir().unwrap();
+    write_file(
+        directory.path(),
+        "metadata.yaml",
+        "type: note\npriority: 8\n",
+    );
     write_file(
         directory.path(),
         "numeric.md",

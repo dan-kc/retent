@@ -1,7 +1,6 @@
 mod cli;
 mod discover;
 mod frontmatter;
-mod priority;
 
 use std::io::{self, Write};
 use std::process::ExitCode;

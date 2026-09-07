@@ -53,6 +53,23 @@ fn notes_without_exposure_score_from_priority() {
 }
 
 #[test]
+fn bare_markdown_uses_inherited_note_fields_for_its_score() {
+    let directory = tempdir().unwrap();
+    write_file(
+        directory.path(),
+        "metadata.yaml",
+        "type: note\npriority: 7\n",
+    );
+    write_file(directory.path(), "note.md", "Body.\n");
+
+    columns_command(directory.path(), &["type", "priority", "score"])
+        .assert()
+        .success()
+        .stdout(b"note\t7\t0.700\t./note.md\x00".as_slice())
+        .stderr("");
+}
+
+#[test]
 fn every_recent_exposure_contributes_to_the_score() {
     let directory = tempdir().unwrap();
     let today = date_from_today(0);

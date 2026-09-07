@@ -1,5 +1,6 @@
+use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use clap::ValueEnum;
 use fsrs::{DEFAULT_PARAMETERS, FSRS, FSRSItem, FSRSReview, current_retrievability};
@@ -52,6 +53,17 @@ pub(crate) enum CardMemory {
     },
 }
 
+pub(crate) struct Metadata {
+    inheritance_root: PathBuf,
+    layers: HashMap<PathBuf, Mapping>,
+    findings: Vec<MetadataFinding>,
+}
+
+pub(crate) struct MetadataFinding {
+    path: PathBuf,
+    reason: String,
+}
+
 struct CardReview {
     date: Date,
     rating: u32,
@@ -63,7 +75,7 @@ struct NoteExposure {
 }
 
 impl Document {
-    pub(crate) fn read(path: &Path, today: Date) -> Self {
+    pub(crate) fn read(path: &Path, today: Date, defaults: &Mapping) -> Self {
         let bytes = match fs::read(path) {
             Ok(bytes) => bytes,
             Err(error) => {
@@ -76,14 +88,14 @@ impl Document {
                 return Self::Invalid(vec![ValidationIssue("file is not valid UTF-8".to_owned())]);
             }
         };
-        Self::parse(&source, today)
+        Self::parse(&source, today, defaults)
     }
 
-    fn parse(source: &str, today: Date) -> Self {
+    fn parse(source: &str, today: Date, defaults: &Mapping) -> Self {
         let source = source.strip_prefix('\u{feff}').unwrap_or(source);
         let mut lines = source.lines();
         if lines.next() != Some("---") {
-            return Self::Unmanaged;
+            return validate_mapping(defaults, source, today);
         }
 
         let mut yaml = String::new();
@@ -100,17 +112,17 @@ impl Document {
             return Self::Unmanaged;
         }
 
-        let mapping = match serde_yaml_ng::from_str(&yaml) {
+        let file_mapping = match serde_yaml_ng::from_str(&yaml) {
             Ok(Value::Mapping(mapping)) => mapping,
             Ok(_) | Err(_) => return Self::Unmanaged,
         };
+        let mut mapping = defaults.clone();
+        for (key, value) in file_mapping {
+            mapping.insert(key, value);
+        }
         let body = lines.collect::<Vec<_>>().join("\n");
 
-        match mapping.get(Value::String("type".to_owned())) {
-            Some(Value::String(value)) if value == "note" => validate_note(&mapping, &body, today),
-            Some(Value::String(value)) if value == "card" => validate_card(&mapping, &body, today),
-            _ => Self::Unmanaged,
-        }
+        validate_mapping(&mapping, &body, today)
     }
 
     pub(crate) fn values(&self, columns: &[Column]) -> Option<Vec<String>> {
@@ -129,6 +141,87 @@ impl Document {
             Self::Invalid(issues) => Some(issues),
             Self::Managed(_) | Self::Unmanaged => None,
         }
+    }
+}
+
+impl Metadata {
+    pub(crate) fn load(inheritance_root: PathBuf, paths: Vec<PathBuf>) -> Result<Self, String> {
+        let mut layers = HashMap::new();
+        let mut findings = Vec::new();
+
+        for path in paths {
+            match read_metadata_mapping(&path) {
+                Ok(mapping) => {
+                    let directory = path.parent().ok_or_else(|| {
+                        format!("{} does not have a parent directory", path.display())
+                    })?;
+                    layers.insert(directory.to_path_buf(), mapping);
+                }
+                Err(reason) => findings.push(MetadataFinding { path, reason }),
+            }
+        }
+
+        Ok(Self {
+            inheritance_root,
+            layers,
+            findings,
+        })
+    }
+
+    pub(crate) fn values_for(&self, path: &Path) -> Mapping {
+        let Some(parent) = path.parent() else {
+            return Mapping::new();
+        };
+        let mut directories: Vec<_> = parent
+            .ancestors()
+            .take_while(|directory| directory.starts_with(&self.inheritance_root))
+            .collect();
+        directories.reverse();
+
+        let mut values = Mapping::new();
+        for directory in directories {
+            let Some(layer) = self.layers.get(directory) else {
+                continue;
+            };
+            for (key, value) in layer {
+                values.insert(key.clone(), value.clone());
+            }
+        }
+        values
+    }
+
+    pub(crate) fn findings(&self) -> &[MetadataFinding] {
+        &self.findings
+    }
+}
+
+impl MetadataFinding {
+    pub(crate) fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub(crate) fn reason(&self) -> &str {
+        &self.reason
+    }
+}
+
+fn read_metadata_mapping(path: &Path) -> Result<Mapping, String> {
+    let bytes = fs::read(path).map_err(|error| format!("cannot read file: {error}"))?;
+    let source = String::from_utf8(bytes).map_err(|_| "file is not valid UTF-8".to_owned())?;
+    let source = source.strip_prefix('\u{feff}').unwrap_or(&source);
+
+    match serde_yaml_ng::from_str(source) {
+        Ok(Value::Mapping(mapping)) => Ok(mapping),
+        Ok(_) => Err("metadata is not a YAML mapping".to_owned()),
+        Err(_) => Err("metadata is malformed".to_owned()),
+    }
+}
+
+fn validate_mapping(mapping: &Mapping, body: &str, today: Date) -> Document {
+    match mapping.get(Value::String("type".to_owned())) {
+        Some(Value::String(value)) if value == "note" => validate_note(mapping, body, today),
+        Some(Value::String(value)) if value == "card" => validate_card(mapping, body, today),
+        _ => Document::Unmanaged,
     }
 }
 

@@ -43,6 +43,59 @@ fn accepts_desired_retention_boundaries() {
 }
 
 #[test]
+fn bare_card_uses_inherited_type_and_desired_retention() {
+    let directory = tempdir().unwrap();
+    write_file(
+        directory.path(),
+        "metadata.yaml",
+        "type: card\ndesired retention: 75\n",
+    );
+    write_file(
+        directory.path(),
+        "card.md",
+        indoc! {r#"
+            <!-- FRONT:BEGIN -->
+            Question.
+            <!-- FRONT:END -->
+        "#},
+    );
+
+    columns_command(directory.path(), &["type", "desired retention", "score"])
+        .assert()
+        .success()
+        .stdout(b"card\t75\t0.500\t./card.md\x00".as_slice())
+        .stderr("");
+}
+
+#[test]
+fn file_type_override_keeps_other_inherited_fields() {
+    let directory = tempdir().unwrap();
+    write_file(
+        directory.path(),
+        "metadata.yaml",
+        "type: note\npriority: 6\ndesired retention: 80\n",
+    );
+    write_file(
+        directory.path(),
+        "card.md",
+        indoc! {r#"
+            ---
+            type: card
+            ---
+
+            <!-- FRONT:BEGIN -->
+            <!-- FRONT:END -->
+        "#},
+    );
+
+    columns_command(directory.path(), &["type", "priority", "desired retention"])
+        .assert()
+        .success()
+        .stdout(b"card\t-\t80\t./card.md\x00".as_slice())
+        .stderr("");
+}
+
+#[test]
 fn rejects_full_desired_retention() {
     let directory = tempdir().unwrap();
     write_file(

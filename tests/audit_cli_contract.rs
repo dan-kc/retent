@@ -78,3 +78,23 @@ fn unreadable_files_are_reported_without_stopping_the_audit() {
     assert!(stdout.starts_with("./unreadable.md\tcannot read file: "));
     assert_eq!(stdout.lines().count(), 1);
 }
+
+#[cfg(unix)]
+#[test]
+fn unreadable_metadata_is_reported_without_stopping_the_audit() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let directory = tempdir().unwrap();
+    let unreadable = directory.path().join("metadata.yaml");
+    fs::write(&unreadable, "type: note\npriority: 8\n").unwrap();
+    fs::set_permissions(&unreadable, fs::Permissions::from_mode(0o000)).unwrap();
+
+    let assert = common::audit_command(directory.path()).assert().code(1);
+    fs::set_permissions(&unreadable, fs::Permissions::from_mode(0o600)).unwrap();
+
+    let output = assert.get_output();
+    assert!(output.stderr.is_empty());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.starts_with("./metadata.yaml\tcannot read file: "));
+    assert_eq!(stdout.lines().count(), 1);
+}
