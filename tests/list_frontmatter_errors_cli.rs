@@ -10,7 +10,7 @@ fn malformed_yaml_is_unmanaged_despite_inherited_metadata() {
     let directory = tempdir().unwrap();
     write_file(
         directory.path(),
-        "metadata.yaml",
+        ".defaults.yaml",
         "type: note\npriority: 8\n",
     );
     write_file(
@@ -35,7 +35,7 @@ fn unclosed_frontmatter_is_unmanaged_despite_inherited_metadata() {
     let directory = tempdir().unwrap();
     write_file(
         directory.path(),
-        "metadata.yaml",
+        ".defaults.yaml",
         "type: note\npriority: 8\n",
     );
     write_file(
@@ -60,7 +60,7 @@ fn non_mapping_frontmatter_is_unmanaged_despite_inherited_metadata() {
     let directory = tempdir().unwrap();
     write_file(
         directory.path(),
-        "metadata.yaml",
+        ".defaults.yaml",
         "type: note\npriority: 8\n",
     );
     write_file(
@@ -141,12 +141,12 @@ fn list_ignores_invalid_metadata_and_uses_valid_ancestor_defaults() {
     std::fs::create_dir(directory.path().join(".git")).unwrap();
     write_file(
         directory.path(),
-        "metadata.yaml",
+        ".defaults.yaml",
         "type: note\npriority: 6\n",
     );
     write_file(
         directory.path(),
-        "nested/metadata.yaml",
+        "nested/.defaults.yaml",
         "priority: [invalid\n",
     );
     write_file(directory.path(), "nested/note.md", "Body.\n");

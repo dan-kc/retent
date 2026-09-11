@@ -54,7 +54,7 @@ fn a_vault_without_invalid_entries_passes_without_output() {
 #[test]
 fn inherited_priority_satisfies_a_note_requirement() {
     let directory = tempdir().unwrap();
-    write_file(directory.path(), "metadata.yaml", "priority: 7\n");
+    write_file(directory.path(), ".defaults.yaml", "priority: 7\n");
     write_file(
         directory.path(),
         "note.md",
@@ -77,7 +77,7 @@ fn invalid_file_priority_overrides_a_valid_metadata_priority() {
     let directory = tempdir().unwrap();
     write_file(
         directory.path(),
-        "metadata.yaml",
+        ".defaults.yaml",
         "type: note\npriority: 4\n",
     );
     write_file(
@@ -207,43 +207,43 @@ fn audit_help_displays_the_absolute_path_flag() {
 #[test]
 fn malformed_metadata_is_reported_without_markdown_descendants() {
     let directory = tempdir().unwrap();
-    write_file(directory.path(), "nested/metadata.yaml", "type: [note\n");
+    write_file(directory.path(), "nested/.defaults.yaml", "type: [note\n");
 
     audit_command(directory.path())
         .assert()
         .code(1)
-        .stdout("./nested/metadata.yaml\tmetadata is malformed\n")
+        .stdout("./nested/.defaults.yaml\tmetadata is malformed\n")
         .stderr("");
 }
 
 #[test]
 fn non_mapping_metadata_is_reported() {
     let directory = tempdir().unwrap();
-    write_file(directory.path(), "metadata.yaml", "- note\n- card\n");
+    write_file(directory.path(), ".defaults.yaml", "- note\n- card\n");
 
     audit_command(directory.path())
         .assert()
         .code(1)
-        .stdout("./metadata.yaml\tmetadata is not a YAML mapping\n")
+        .stdout("./.defaults.yaml\tmetadata is not a YAML mapping\n")
         .stderr("");
 }
 
 #[test]
 fn empty_metadata_is_reported_as_non_mapping_yaml() {
     let directory = tempdir().unwrap();
-    write_file(directory.path(), "metadata.yaml", "# Defaults go here.\n");
+    write_file(directory.path(), ".defaults.yaml", "# Defaults go here.\n");
 
     audit_command(directory.path())
         .assert()
         .code(1)
-        .stdout("./metadata.yaml\tmetadata is not a YAML mapping\n")
+        .stdout("./.defaults.yaml\tmetadata is not a YAML mapping\n")
         .stderr("");
 }
 
 #[test]
 fn explicit_empty_mapping_is_valid_metadata() {
     let directory = tempdir().unwrap();
-    write_file(directory.path(), "metadata.yaml", "{}\n");
+    write_file(directory.path(), ".defaults.yaml", "{}\n");
 
     audit_command(directory.path())
         .assert()
@@ -255,12 +255,12 @@ fn explicit_empty_mapping_is_valid_metadata() {
 #[test]
 fn invalid_utf8_metadata_is_reported() {
     let directory = tempdir().unwrap();
-    write_bytes(directory.path(), "metadata.yaml", [0xff]);
+    write_bytes(directory.path(), ".defaults.yaml", [0xff]);
 
     audit_command(directory.path())
         .assert()
         .code(1)
-        .stdout("./metadata.yaml\tfile is not valid UTF-8\n")
+        .stdout("./.defaults.yaml\tfile is not valid UTF-8\n")
         .stderr("");
 }
 
@@ -269,7 +269,7 @@ fn invalid_metadata_field_is_reported_on_an_affected_document() {
     let directory = tempdir().unwrap();
     write_file(
         directory.path(),
-        "metadata.yaml",
+        ".defaults.yaml",
         "type: note\npriority: high\n",
     );
     write_file(directory.path(), "note.md", "Body.\n");
@@ -286,10 +286,10 @@ fn overridden_invalid_metadata_field_produces_no_finding() {
     let directory = tempdir().unwrap();
     write_file(
         directory.path(),
-        "metadata.yaml",
+        ".defaults.yaml",
         "type: note\npriority: 11\n",
     );
-    write_file(directory.path(), "nested/metadata.yaml", "priority: 7\n");
+    write_file(directory.path(), "nested/.defaults.yaml", "priority: 7\n");
     write_file(directory.path(), "nested/note.md", "Body.\n");
 
     audit_command(directory.path())
@@ -304,17 +304,17 @@ fn invalid_layer_is_reported_once_while_valid_descendant_layer_applies() {
     let directory = tempdir().unwrap();
     write_file(
         directory.path(),
-        "metadata.yaml",
+        ".defaults.yaml",
         "type: note\npriority: 2\n",
     );
     write_file(
         directory.path(),
-        "nested/metadata.yaml",
+        "nested/.defaults.yaml",
         "priority: [invalid\n",
     );
     write_file(
         directory.path(),
-        "nested/deep/metadata.yaml",
+        "nested/deep/.defaults.yaml",
         "priority: 8\n",
     );
     write_file(directory.path(), "nested/deep/note.md", "Body.\n");
@@ -322,7 +322,7 @@ fn invalid_layer_is_reported_once_while_valid_descendant_layer_applies() {
     audit_command(directory.path())
         .assert()
         .code(1)
-        .stdout("./nested/metadata.yaml\tmetadata is malformed\n")
+        .stdout("./nested/.defaults.yaml\tmetadata is malformed\n")
         .stderr("");
 }
 
@@ -338,14 +338,14 @@ fn metadata_and_document_findings_are_sorted_together() {
             ---
         "#},
     );
-    write_file(directory.path(), "metadata.yaml", "not: [closed\n");
+    write_file(directory.path(), ".defaults.yaml", "not: [closed\n");
 
     audit_command(directory.path())
         .assert()
         .code(1)
         .stdout(
-            "./alpha.md\tpriority is missing\n\
-             ./metadata.yaml\tmetadata is malformed\n",
+            "./.defaults.yaml\tmetadata is malformed\n\
+             ./alpha.md\tpriority is missing\n",
         )
         .stderr("");
 }
@@ -354,13 +354,13 @@ fn metadata_and_document_findings_are_sorted_together() {
 fn inherited_invalid_metadata_above_cwd_uses_a_parent_relative_path() {
     let directory = tempdir().unwrap();
     fs::create_dir(directory.path().join(".git")).unwrap();
-    write_file(directory.path(), "metadata.yaml", "type: [note\n");
+    write_file(directory.path(), ".defaults.yaml", "type: [note\n");
     fs::create_dir(directory.path().join("nested")).unwrap();
 
     audit_command(&directory.path().join("nested"))
         .assert()
         .code(1)
-        .stdout("../metadata.yaml\tmetadata is malformed\n")
+        .stdout("../.defaults.yaml\tmetadata is malformed\n")
         .stderr("");
 }
 
@@ -368,12 +368,12 @@ fn inherited_invalid_metadata_above_cwd_uses_a_parent_relative_path() {
 fn absolute_path_applies_to_inherited_metadata_above_cwd() {
     let directory = tempdir().unwrap();
     fs::create_dir(directory.path().join(".git")).unwrap();
-    write_file(directory.path(), "metadata.yaml", "type: [note\n");
+    write_file(directory.path(), ".defaults.yaml", "type: [note\n");
     fs::create_dir(directory.path().join("nested")).unwrap();
     let root = fs::canonicalize(directory.path()).unwrap();
     let expected = format!(
         "{}\tmetadata is malformed\n",
-        root.join("metadata.yaml").display()
+        root.join(".defaults.yaml").display()
     );
 
     audit_command(&directory.path().join("nested"))

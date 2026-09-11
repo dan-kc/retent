@@ -57,7 +57,7 @@ fn bare_markdown_uses_inherited_note_fields_for_its_score() {
     let directory = tempdir().unwrap();
     write_file(
         directory.path(),
-        "metadata.yaml",
+        ".defaults.yaml",
         "type: note\npriority: 7\n",
     );
     write_file(directory.path(), "note.md", "Body.\n");

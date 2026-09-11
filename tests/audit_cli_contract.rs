@@ -85,7 +85,7 @@ fn unreadable_metadata_is_reported_without_stopping_the_audit() {
     use std::os::unix::fs::PermissionsExt;
 
     let directory = tempdir().unwrap();
-    let unreadable = directory.path().join("metadata.yaml");
+    let unreadable = directory.path().join(".defaults.yaml");
     fs::write(&unreadable, "type: note\npriority: 8\n").unwrap();
     fs::set_permissions(&unreadable, fs::Permissions::from_mode(0o000)).unwrap();
 
@@ -95,6 +95,6 @@ fn unreadable_metadata_is_reported_without_stopping_the_audit() {
     let output = assert.get_output();
     assert!(output.stderr.is_empty());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.starts_with("./metadata.yaml\tcannot read file: "));
+    assert!(stdout.starts_with("./.defaults.yaml\tcannot read file: "));
     assert_eq!(stdout.lines().count(), 1);
 }

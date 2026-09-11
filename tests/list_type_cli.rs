@@ -62,7 +62,7 @@ fn explicit_unknown_type_overrides_inherited_type() {
     let directory = tempdir().unwrap();
     write_file(
         directory.path(),
-        "metadata.yaml",
+        ".defaults.yaml",
         "type: note\npriority: 4\n",
     );
     write_file(
@@ -109,7 +109,7 @@ fn non_string_type_overrides_an_inherited_type() {
     let directory = tempdir().unwrap();
     write_file(
         directory.path(),
-        "metadata.yaml",
+        ".defaults.yaml",
         "type: note\npriority: 8\n",
     );
     write_file(

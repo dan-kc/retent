@@ -33,7 +33,7 @@ pub(crate) fn vault_files(root: &Path) -> Result<VaultFiles, String> {
         .skip(1)
         .take_while(|directory| directory.starts_with(&inheritance_root))
     {
-        let path = directory.join("metadata.yaml");
+        let path = directory.join(".defaults.yaml");
         match fs::symlink_metadata(&path) {
             Ok(file_metadata) if file_metadata.file_type().is_file() => metadata.push(path),
             Ok(_) => {}
@@ -70,7 +70,7 @@ fn has_markdown_extension(path: &Path) -> bool {
 }
 
 fn is_metadata_file(entry: &DirEntry) -> bool {
-    entry.file_name() == "metadata.yaml"
+    entry.file_name() == ".defaults.yaml"
 }
 
 fn inheritance_root(root: &Path) -> Result<PathBuf, String> {

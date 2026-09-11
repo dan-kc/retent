@@ -165,12 +165,12 @@ fn empty_tree_returns_nothing_successfully() {
 }
 
 #[test]
-fn inherits_git_root_metadata_without_expanding_discovery() {
+fn inherits_git_root_defaults_without_expanding_discovery() {
     let directory = tempdir().unwrap();
     fs::create_dir(directory.path().join(".git")).unwrap();
     write_file(
         directory.path(),
-        "metadata.yaml",
+        ".defaults.yaml",
         "type: note\npriority: 5\n",
     );
     write_file(directory.path(), "outside.md", "Outside.\n");
@@ -186,17 +186,22 @@ fn inherits_git_root_metadata_without_expanding_discovery() {
 }
 
 #[test]
-fn metadata_filename_is_case_sensitive_and_requires_yaml_extension() {
+fn defaults_filename_is_hidden_case_sensitive_and_requires_yaml_extension() {
     let directory = tempdir().unwrap();
     write_file(
         directory.path(),
-        "Metadata.yaml",
+        ".Defaults.yaml",
         "type: note\npriority: 4\n",
     );
     write_file(
         directory.path(),
-        "metadata.yml",
+        ".defaults.yml",
         "type: note\npriority: 5\n",
+    );
+    write_file(
+        directory.path(),
+        "defaults.yaml",
+        "type: note\npriority: 6\n",
     );
     write_file(directory.path(), "note.md", "Body.\n");
 
@@ -211,16 +216,31 @@ fn metadata_filename_is_case_sensitive_and_requires_yaml_extension() {
 
 #[cfg(unix)]
 #[test]
-fn metadata_file_symlinks_are_ignored() {
+fn defaults_file_symlinks_are_ignored() {
     use std::os::unix::fs::symlink;
 
     let directory = tempdir().unwrap();
+    write_file(directory.path(), "source.yaml", "type: note\npriority: 4\n");
+    symlink("source.yaml", directory.path().join(".defaults.yaml")).unwrap();
+    write_file(directory.path(), "note.md", "Body.\n");
+
+    let mut command = list_command(directory.path());
+    command.args(["--col", "type"]);
+    command
+        .assert()
+        .success()
+        .stdout(b"-\t./note.md\x00".as_slice())
+        .stderr("");
+}
+
+#[test]
+fn legacy_metadata_filename_is_ignored() {
+    let directory = tempdir().unwrap();
     write_file(
         directory.path(),
-        "defaults.yaml",
+        "metadata.yaml",
         "type: note\npriority: 4\n",
     );
-    symlink("defaults.yaml", directory.path().join("metadata.yaml")).unwrap();
     write_file(directory.path(), "note.md", "Body.\n");
 
     let mut command = list_command(directory.path());
@@ -237,7 +257,7 @@ fn inheritance_stops_at_cwd_without_a_git_root() {
     let directory = tempdir().unwrap();
     write_file(
         directory.path(),
-        "metadata.yaml",
+        ".defaults.yaml",
         "type: note\npriority: 4\n",
     );
     write_file(directory.path(), "nested/note.md", "Body.\n");
@@ -252,11 +272,11 @@ fn inheritance_stops_at_cwd_without_a_git_root() {
 }
 
 #[test]
-fn metadata_accepts_a_utf8_bom() {
+fn defaults_accepts_a_utf8_bom() {
     let directory = tempdir().unwrap();
     write_file(
         directory.path(),
-        "metadata.yaml",
+        ".defaults.yaml",
         "\u{feff}type: note\npriority: 4\n",
     );
     write_file(directory.path(), "note.md", "Body.\n");

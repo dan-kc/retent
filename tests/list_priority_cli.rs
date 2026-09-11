@@ -39,8 +39,8 @@ fn accepts_priority_boundaries() {
 #[test]
 fn nested_metadata_merges_priority_with_an_inherited_type() {
     let directory = tempdir().unwrap();
-    write_file(directory.path(), "metadata.yaml", "type: note\n");
-    write_file(directory.path(), "nested/metadata.yaml", "priority: 8\n");
+    write_file(directory.path(), ".defaults.yaml", "type: note\n");
+    write_file(directory.path(), "nested/.defaults.yaml", "priority: 8\n");
     write_file(directory.path(), "nested/note.md", "Body.\n");
 
     columns_command(directory.path(), &["type", "priority"])
@@ -55,10 +55,10 @@ fn nearest_metadata_priority_overrides_its_ancestor() {
     let directory = tempdir().unwrap();
     write_file(
         directory.path(),
-        "metadata.yaml",
+        ".defaults.yaml",
         "type: note\npriority: 3\n",
     );
-    write_file(directory.path(), "nested/metadata.yaml", "priority: 9\n");
+    write_file(directory.path(), "nested/.defaults.yaml", "priority: 9\n");
     write_file(directory.path(), "nested/note.md", "Body.\n");
 
     columns_command(directory.path(), &["priority"])
@@ -73,7 +73,7 @@ fn file_priority_overrides_directory_metadata() {
     let directory = tempdir().unwrap();
     write_file(
         directory.path(),
-        "metadata.yaml",
+        ".defaults.yaml",
         "type: note\npriority: 4\n",
     );
     write_file(

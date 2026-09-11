@@ -47,7 +47,7 @@ fn bare_card_uses_inherited_type_and_desired_retention() {
     let directory = tempdir().unwrap();
     write_file(
         directory.path(),
-        "metadata.yaml",
+        ".defaults.yaml",
         "type: card\ndesired retention: 75\n",
     );
     write_file(
@@ -72,7 +72,7 @@ fn file_type_override_keeps_other_inherited_fields() {
     let directory = tempdir().unwrap();
     write_file(
         directory.path(),
-        "metadata.yaml",
+        ".defaults.yaml",
         "type: note\npriority: 6\ndesired retention: 80\n",
     );
     write_file(

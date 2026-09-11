@@ -15,7 +15,7 @@ This is the normative vault format and scheduling specification.
 
 ### Directory metadata
 
-- A regular, non-symlink file named exactly `metadata.yaml` supplies defaults to Markdown files in its directory and descendants. Other names, extensions, case variants, and symlinks are ignored.
+- A regular, non-symlink file named exactly `.defaults.yaml` supplies defaults to Markdown files in its directory and descendants. Other names, extensions, case variants, and symlinks are ignored.
 - The whole metadata file is one UTF-8 YAML mapping, optionally preceded by a UTF-8 BOM. Frontmatter delimiters are not required. An explicit empty mapping is valid; empty, comment-only, malformed, and non-mapping YAML is invalid metadata.
 - Metadata mappings may be partial and may contain unknown keys. Recognized field values are validated only when they are effective for a managed Markdown document.
 - Mappings merge by key from the inheritance root through each descendant directory. The nearest value for a key wins, and valid file frontmatter is the most specific mapping.
