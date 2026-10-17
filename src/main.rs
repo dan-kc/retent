@@ -1,6 +1,7 @@
 mod cli;
 mod discover;
 mod frontmatter;
+mod review;
 
 use std::io::{self, Write};
 use std::process::ExitCode;

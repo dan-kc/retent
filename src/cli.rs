@@ -20,6 +20,9 @@ enum Command {
 
     /// Check every managed Markdown file for validation errors.
     Audit(AuditArgs),
+
+    /// Append today's review to a managed Markdown file.
+    Review(crate::review::ReviewArgs),
 }
 
 #[derive(Debug, Args)]
@@ -56,6 +59,7 @@ pub(crate) fn run() -> Result<Outcome, String> {
     match cli.command {
         Command::List(args) => list(args),
         Command::Audit(args) => audit(args),
+        Command::Review(args) => crate::review::run(args),
     }
 }
 

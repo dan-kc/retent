@@ -45,6 +45,22 @@ This is the normative vault format and scheduling specification.
 
 `audit` output paths and reasons escape backslashes and output-breaking control characters. Paths that are not valid Unicode use lowercase `\xNN` byte escapes.
 
+`review <FILE>` appends one history row dated today in the local timezone.
+
+- Cards require `--rating 1..4`; notes require `--end-line <non-negative integer> --pass <non-negative integer>`. Arguments for the other document type are rejected.
+- The target must be an existing regular Markdown file, not a symlink, and must be a valid managed document under the same effective directory metadata rules as `list`.
+- The existing document and the proposed updated document are fully validated before writing. Invalid or unmanaged documents, invalid arguments, and decreasing note passes fail without changing the file.
+- A missing history block is created with the type-specific table. Otherwise a row is appended to the existing table. Same-day reviews are allowed.
+- Existing content, history rows, line endings, and file permissions are preserved. The updated file is written to a temporary file in the same directory and replaces the original only after a complete successful write. A detected content change during the operation aborts the review.
+- Success produces no output and exits with status 0. Failure reports a reason on stderr and exits unsuccessfully.
+
+Examples:
+
+```sh
+retent review cards/vocabulary/frisson.md --rating 3
+retent review notes/chapter.md --end-line 42 --pass 1
+```
+
 ### History blocks
 
 A document may have at most one history block:

@@ -90,3 +90,26 @@ fn inheritance_root(root: &Path) -> Result<PathBuf, String> {
 
     Ok(root.to_path_buf())
 }
+
+pub(crate) fn metadata_for_file(cwd: &Path, path: &Path) -> Result<VaultFiles, String> {
+    let parent = path.parent().ok_or("file has no parent directory")?;
+    let root = inheritance_root(if path.starts_with(cwd) { cwd } else { parent })?;
+    let mut metadata = Vec::new();
+    for directory in parent
+        .ancestors()
+        .take_while(|directory| directory.starts_with(&root))
+    {
+        let candidate = directory.join(".defaults.yaml");
+        match fs::symlink_metadata(&candidate) {
+            Ok(entry) if entry.is_file() => metadata.push(candidate),
+            Ok(_) => {}
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("cannot inspect {}: {error}", candidate.display())),
+        }
+    }
+    Ok(VaultFiles {
+        inheritance_root: root,
+        markdown: Vec::new(),
+        metadata,
+    })
+}

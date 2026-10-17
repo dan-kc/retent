@@ -91,7 +91,7 @@ impl Document {
         Self::parse(&source, today, defaults)
     }
 
-    fn parse(source: &str, today: Date, defaults: &Mapping) -> Self {
+    pub(crate) fn parse(source: &str, today: Date, defaults: &Mapping) -> Self {
         let source = source.strip_prefix('\u{feff}').unwrap_or(source);
         let mut lines = source.lines();
         if lines.next() != Some("---") {
